@@ -5,6 +5,7 @@ import { dashboardService, EconomyHistoryItem, DistributionItem } from '../servi
 import { KPIStats } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { GoogleGenAI } from "@google/genai";
+import { aiPromptService } from '../services/aiPromptService';
 
 const ExecutiveDashboard: React.FC = () => {
   const { profile } = useAuth();
@@ -31,7 +32,7 @@ const ExecutiveDashboard: React.FC = () => {
       setLoading(true);
       const organizationId = profile?.organization_id || undefined;
       const data = await dashboardService.getDashboardData(organizationId);
-      
+
       setStats(data.stats);
       setEconomyHistory(data.economyHistory);
       setDistributionByType(data.distributionByType);
@@ -46,10 +47,9 @@ const ExecutiveDashboard: React.FC = () => {
     setLoadingAi(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
-      // Carrega o prompt customizado se existir
-      let promptTemplate = localStorage.getItem('ai_insight_prompt') || 
-        "Analise os dados de ROI de projetos de IA desta organização:\n- ROI Total: {roi_total}%\n- Economia Anual: R$ {economia_anual}\n- Horas economizadas: {horas_economizadas_ano}h\n- Projetos em produção: {projetos_producao}\n- Payback médio: {payback_medio} meses\n\nForneça um insight estratégico curto (3 frases) em Português sobre o desempenho e onde focar.";
+
+      // Carrega o prompt customizado do banco de dados
+      const promptTemplate = await aiPromptService.getPrompt();
 
       // Faz os replaces das variáveis
       const finalPrompt = promptTemplate
@@ -94,7 +94,7 @@ const ExecutiveDashboard: React.FC = () => {
           <h2 className="text-2xl font-bold">Dashboard Executivo</h2>
           <p className="text-slate-500 dark:text-slate-400">Visão consolidada do programa de IA</p>
         </div>
-        <button 
+        <button
           onClick={generateAIInsight}
           disabled={loadingAi || stats.projetos_producao === 0}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50 shadow-lg shadow-indigo-500/20"
@@ -125,40 +125,40 @@ const ExecutiveDashboard: React.FC = () => {
 
       {/* KPI Section */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KPICard 
-          title="ROI Total" 
-          value={`${stats.roi_total}%`} 
-          color="bg-green-600" 
+        <KPICard
+          title="ROI Total"
+          value={`${stats.roi_total}%`}
+          color="bg-green-600"
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
         />
-        <KPICard 
-          title="Economia Anual" 
-          value={`R$ ${stats.economia_anual >= 1000 ? (stats.economia_anual / 1000).toFixed(0) + 'k' : stats.economia_anual.toLocaleString()}`} 
-          color="bg-green-600" 
+        <KPICard
+          title="Economia Anual"
+          value={`R$ ${stats.economia_anual >= 1000 ? (stats.economia_anual / 1000).toFixed(0) + 'k' : stats.economia_anual.toLocaleString()}`}
+          color="bg-green-600"
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
-        <KPICard 
-          title="Horas Econom." 
-          value={`${stats.horas_economizadas_ano.toLocaleString()}`} 
-          color="bg-indigo-600" 
+        <KPICard
+          title="Horas Econom."
+          value={`${stats.horas_economizadas_ano.toLocaleString()}`}
+          color="bg-indigo-600"
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
-        <KPICard 
-          title="Projetos Produção" 
-          value={`${stats.projetos_producao}`} 
-          color="bg-indigo-600" 
+        <KPICard
+          title="Projetos Produção"
+          value={`${stats.projetos_producao}`}
+          color="bg-indigo-600"
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
         />
-        <KPICard 
-          title="Concluídos" 
-          value={`${stats.projetos_concluidos}`} 
-          color="bg-teal-600" 
+        <KPICard
+          title="Concluídos"
+          value={`${stats.projetos_concluidos}`}
+          color="bg-teal-600"
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
-        <KPICard 
-          title="Payback Médio" 
-          value={`${stats.payback_medio}m`} 
-          color="bg-orange-600" 
+        <KPICard
+          title="Payback Médio"
+          value={`${stats.payback_medio}m`}
+          color="bg-orange-600"
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
         />
       </div>
@@ -173,14 +173,14 @@ const ExecutiveDashboard: React.FC = () => {
                 <AreaChart data={economyHistory}>
                   <defs>
                     <linearGradient id="colorBruta" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4CAF50" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#4CAF50" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#4CAF50" stopOpacity={0.1} />
+                      <stop offset="95%" stopColor="#4CAF50" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                  <Tooltip 
+                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                  <Tooltip
                     contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }}
                     itemStyle={{ color: '#fff' }}
                   />
@@ -223,7 +223,7 @@ const ExecutiveDashboard: React.FC = () => {
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex items-center justify-center flex-col pointer-events-none">
                   <span className="text-2xl font-bold">
-                    {distributionByType.reduce((sum, item) => sum + item.value, 0) >= 1000 
+                    {distributionByType.reduce((sum, item) => sum + item.value, 0) >= 1000
                       ? `${((distributionByType.reduce((sum, item) => sum + item.value, 0)) / 1000).toFixed(0)}k`
                       : distributionByType.reduce((sum, item) => sum + item.value, 0).toLocaleString()}
                   </span>
