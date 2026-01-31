@@ -46,8 +46,8 @@ const Login: React.FC = () => {
 
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-slate-400 tracking-widest ml-1">E-mail Corporativo</label>
-            <input 
-              type="email" 
+            <input
+              type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -61,8 +61,8 @@ const Login: React.FC = () => {
               <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Senha</label>
               <Link to="/forgot-password" className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">Esqueceu a senha?</Link>
             </div>
-            <input 
-              type="password" 
+            <input
+              type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -71,8 +71,8 @@ const Login: React.FC = () => {
             />
           </div>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
             className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/30 flex items-center justify-center gap-3 disabled:opacity-50"
           >
