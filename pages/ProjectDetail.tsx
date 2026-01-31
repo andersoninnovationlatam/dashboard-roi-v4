@@ -13,7 +13,7 @@ const ProjectDetail: React.FC = () => {
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [activeTab, setActiveTab] = useState<'details' | 'indicators'>('indicators');
   const [loading, setLoading] = useState(true);
-  
+
   // IA States
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
@@ -30,7 +30,7 @@ const ProjectDetail: React.FC = () => {
         projectService.getById(id),
         indicatorService.getByProjectId(id),
       ]);
-      
+
       if (projectData) {
         setProject(projectData);
         setIndicators(indicatorsData);
@@ -49,10 +49,10 @@ const ProjectDetail: React.FC = () => {
     let postIACost = 0;
     let improvementPct = "0";
 
-    const calcPeopleCost = (people?: PersonInvolved[]) => 
+    const calcPeopleCost = (people?: PersonInvolved[]) =>
       (people || []).reduce((acc, p) => acc + (p.hourlyRate * (p.minutesSpent / 60) * p.frequencyQuantity), 0);
-    
-    const calcToolsCost = (tools?: ToolCost[]) => 
+
+    const calcToolsCost = (tools?: ToolCost[]) =>
       (tools || []).reduce((acc, t) => acc + (t.monthlyCost + (t.otherCosts || 0)), 0);
 
     switch (ind.improvement_type) {
@@ -61,16 +61,16 @@ const ProjectDetail: React.FC = () => {
       case ImprovementType.DECISION_QUALITY:
         baselineCost = calcPeopleCost(ind.baseline.people) + calcToolsCost(ind.baseline.tools) + (ind.baseline.cost || 0);
         postIACost = calcPeopleCost(ind.postIA.people) + calcToolsCost(ind.postIA.tools) + (ind.postIA.cost || 0);
-        
+
         if (ind.improvement_type === ImprovementType.DECISION_QUALITY) {
-           baselineCost += (ind.baseline.decisionCount || 0) * (1 - (ind.baseline.accuracyPct || 0)/100) * (ind.baseline.errorCost || 0);
-           postIACost += (ind.postIA.decisionCount || 0) * (1 - (ind.postIA.accuracyPct || 0)/100) * (ind.postIA.errorCost || 0);
+          baselineCost += (ind.baseline.decisionCount || 0) * (1 - (ind.baseline.accuracyPct || 0) / 100) * (ind.baseline.errorCost || 0);
+          postIACost += (ind.postIA.decisionCount || 0) * (1 - (ind.postIA.accuracyPct || 0) / 100) * (ind.postIA.errorCost || 0);
         }
 
         monthlyEconomy = baselineCost - postIACost;
         improvementPct = baselineCost > 0 ? ((baselineCost - postIACost) / baselineCost * 100).toFixed(1) : "0";
         break;
-      
+
       case ImprovementType.REVENUE_INCREASE:
         monthlyEconomy = (ind.postIA.revenue || 0) - (ind.baseline.revenue || 0);
         improvementPct = ind.baseline.revenue ? (((ind.postIA.revenue || 0) / (ind.baseline.revenue || 1) - 1) * 100).toFixed(1) : "100";
@@ -84,15 +84,15 @@ const ProjectDetail: React.FC = () => {
         break;
 
       case ImprovementType.RISK_REDUCTION:
-        const riskBefore = (ind.baseline.probability || 0)/100 * (ind.baseline.impact || 0);
-        const riskAfter = (ind.postIA.probability || 0)/100 * (ind.postIA.impact || 0);
+        const riskBefore = (ind.baseline.probability || 0) / 100 * (ind.baseline.impact || 0);
+        const riskAfter = (ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0);
         monthlyEconomy = (riskBefore - riskAfter) + ((ind.baseline.mitigationCost || 0) - (ind.postIA.mitigationCost || 0));
         improvementPct = riskBefore > 0 ? (((riskBefore - riskAfter) / riskBefore) * 100).toFixed(1) : "0";
         break;
 
       case ImprovementType.SATISFACTION:
-        const churnBeforeVal = (ind.baseline.churnRate || 0)/100 * (ind.baseline.clientCount || 0) * (ind.baseline.valuePerClient || 0);
-        const churnAfterVal = (ind.postIA.churnRate || 0)/100 * (ind.postIA.clientCount || 0) * (ind.postIA.valuePerClient || 0);
+        const churnBeforeVal = (ind.baseline.churnRate || 0) / 100 * (ind.baseline.clientCount || 0) * (ind.baseline.valuePerClient || 0);
+        const churnAfterVal = (ind.postIA.churnRate || 0) / 100 * (ind.postIA.clientCount || 0) * (ind.postIA.valuePerClient || 0);
         monthlyEconomy = (churnBeforeVal - churnAfterVal) + ((ind.postIA.revenue || 0) - (ind.baseline.revenue || 0));
         improvementPct = (ind.postIA.score && ind.baseline.score) ? (((ind.postIA.score - ind.baseline.score) / ind.baseline.score) * 100).toFixed(1) : "0";
         break;
@@ -129,7 +129,7 @@ const ProjectDetail: React.FC = () => {
         total_economy_annual: annualEconomy,
         roi_percentage: roiPercentage,
       });
-      
+
       setProject(updated);
     } catch (error) {
       console.error('Erro ao atualizar ROI:', error);
@@ -147,6 +147,20 @@ const ProjectDetail: React.FC = () => {
     }
   }, [recalculateAndUpdateProject]);
 
+  // Salvar projeto quando houver mudanças
+  const saveProject = useCallback(async (updates: Partial<Project>) => {
+    if (!project) return;
+    try {
+      const updated = await projectService.update(project.id, {
+        ...project,
+        ...updates,
+      });
+      setProject(updated);
+    } catch (error) {
+      console.error('Erro ao salvar projeto:', error);
+    }
+  }, [project]);
+
   if (loading) {
     return <div className="p-10 text-center">Carregando...</div>;
   }
@@ -158,7 +172,7 @@ const ProjectDetail: React.FC = () => {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const annualImpact = indicators.reduce((acc, ind) => acc + calculateIndicatorStats(ind).annualEconomy, 0);
-      
+
       const prompt = `Analise o projeto de IA específico:
       - Nome: ${project.name}
       - Tipo: ${DEVELOPMENT_LABELS[project.development_type]}
@@ -185,9 +199,9 @@ const ProjectDetail: React.FC = () => {
 
   const updateIndicatorData = async (idx: number, side: 'baseline' | 'postIA', field: keyof IndicatorData, value: any) => {
     const newArr = [...indicators];
-    newArr[idx] = { 
-      ...newArr[idx], 
-      [side]: { ...newArr[idx][side], [field]: value } 
+    newArr[idx] = {
+      ...newArr[idx],
+      [side]: { ...newArr[idx][side], [field]: value }
     };
     setIndicators(newArr);
     // Salvar automaticamente após mudança
@@ -233,7 +247,7 @@ const ProjectDetail: React.FC = () => {
 
   const addIndicator = async (type: ImprovementType) => {
     if (!id) return;
-    
+
     const newInd: Omit<Indicator, 'id'> = {
       project_id: id,
       name: `Novo Indicador - ${IMPROVEMENT_LABELS[type]}`,
@@ -255,7 +269,7 @@ const ProjectDetail: React.FC = () => {
 
   const removeIndicator = async (idx: number) => {
     if (!window.confirm("Tem certeza que deseja excluir este indicador?")) return;
-    
+
     const indicator = indicators[idx];
     try {
       await indicatorService.delete(indicator.id);
@@ -283,9 +297,9 @@ const ProjectDetail: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={generateProjectAIInsight}
             disabled={loadingAi}
             className="flex items-center gap-2 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-600 hover:text-white px-4 py-2 rounded-lg font-bold text-sm transition-all border border-indigo-600/20 disabled:opacity-50"
@@ -366,8 +380,8 @@ const ProjectDetail: React.FC = () => {
                   </button>
                   <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl hidden group-hover:block z-50 overflow-hidden">
                     {Object.entries(IMPROVEMENT_LABELS).map(([key, label]) => (
-                      <button 
-                        key={key} 
+                      <button
+                        key={key}
                         onClick={() => addIndicator(key as ImprovementType)}
                         className="w-full text-left px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-indigo-600 border-b border-slate-50 dark:border-slate-700 last:border-0"
                       >
@@ -386,11 +400,11 @@ const ProjectDetail: React.FC = () => {
                       <div className="p-5 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/20">
                         <div className="flex items-center gap-3 flex-1 mr-4">
                           <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                           </div>
                           <div className="flex-1">
-                            <input 
-                              className="font-bold bg-transparent focus:outline-none border-b border-transparent focus:border-indigo-500 text-lg w-full" 
+                            <input
+                              className="font-bold bg-transparent focus:outline-none border-b border-transparent focus:border-indigo-500 text-lg w-full"
                               value={ind.name}
                               onChange={async (e) => {
                                 const newArr = [...indicators];
@@ -406,8 +420,8 @@ const ProjectDetail: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-6">
                           <div className="text-right">
-                             <p className="text-[10px] font-bold text-slate-400 uppercase">Impacto Anual</p>
-                             <p className="font-black text-green-500 dark:text-green-400 text-xl">R$ {stats.annualEconomy.toLocaleString()}</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">Impacto Anual</p>
+                            <p className="font-black text-green-500 dark:text-green-400 text-xl">R$ {stats.annualEconomy.toLocaleString()}</p>
                           </div>
                           <button onClick={() => removeIndicator(idx)} className="text-slate-300 hover:text-red-500 transition-colors p-2">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -424,35 +438,35 @@ const ProjectDetail: React.FC = () => {
                           </div>
 
                           {(ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) && (
-                             <div className="space-y-4">
-                               {(ind.baseline.people || []).map((p, pIdx) => (
-                                 <div key={p.id} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60 space-y-3 relative">
-                                   <div className="flex justify-between items-center">
-                                     <input 
-                                       className="bg-transparent font-bold text-xs border-none focus:ring-0 w-full" 
-                                       value={p.name} 
-                                       onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'name', e.target.value)}
-                                     />
-                                     <button onClick={() => removePerson(idx, pIdx)} className="text-slate-300 hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                                   </div>
-                                   <div className="grid grid-cols-3 gap-3">
-                                     <div>
-                                       <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">R$/Hora</label>
-                                       <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.hourlyRate} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'hourlyRate', parseFloat(e.target.value) || 0)} />
-                                     </div>
-                                     <div>
-                                       <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Minutos</label>
-                                       <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.minutesSpent} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)} />
-                                     </div>
-                                     <div>
-                                       <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Freq (Mês)</label>
-                                       <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.frequencyQuantity} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)} />
-                                     </div>
-                                   </div>
-                                 </div>
-                               ))}
-                               <button onClick={() => addPerson(idx)} className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">+ Adicionar Novo Colaborador/Fluxo</button>
-                             </div>
+                            <div className="space-y-4">
+                              {(ind.baseline.people || []).map((p, pIdx) => (
+                                <div key={p.id} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60 space-y-3 relative">
+                                  <div className="flex justify-between items-center">
+                                    <input
+                                      className="bg-transparent font-bold text-xs border-none focus:ring-0 w-full"
+                                      value={p.name}
+                                      onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'name', e.target.value)}
+                                    />
+                                    <button onClick={() => removePerson(idx, pIdx)} className="text-slate-300 hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-3">
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">R$/Hora</label>
+                                      <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.hourlyRate} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'hourlyRate', parseFloat(e.target.value) || 0)} />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Minutos</label>
+                                      <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.minutesSpent} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)} />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Freq (Mês)</label>
+                                      <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.frequencyQuantity} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)} />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              <button onClick={() => addPerson(idx)} className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">+ Adicionar Novo Colaborador/Fluxo</button>
+                            </div>
                           )}
                           {/* (Outros tipos de baseline omitidos para brevidade, mas mantidos iguais) */}
                         </div>
@@ -465,38 +479,38 @@ const ProjectDetail: React.FC = () => {
                           </div>
 
                           {(ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) && (
-                             <div className="space-y-4">
-                               {(ind.postIA.people || []).map((p, pIdx) => (
-                                 <div key={p.id} className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 relative">
-                                   <div className="flex justify-between items-center">
-                                     <span className="font-bold text-xs text-indigo-900 dark:text-indigo-200">{p.name}</span>
-                                     <span className="text-[10px] font-black text-green-500">
-                                       {((ind.baseline.people?.[pIdx]?.minutesSpent || 0) > p.minutesSpent) ? `-${(( (ind.baseline.people?.[pIdx]?.minutesSpent || 0) - p.minutesSpent ) / (ind.baseline.people?.[pIdx]?.minutesSpent || 1) * 100).toFixed(0)}% tempo` : ''}
-                                     </span>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-3">
-                                     <div>
-                                       <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Minutos (IA)</label>
-                                       <input 
-                                         type="number" 
-                                         className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none" 
-                                         value={p.minutesSpent} 
-                                         onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)}
-                                       />
-                                     </div>
-                                     <div>
-                                       <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Freq (Mês)</label>
-                                       <input 
-                                         type="number" 
-                                         className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none" 
-                                         value={p.frequencyQuantity} 
-                                         onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)}
-                                       />
-                                     </div>
-                                   </div>
-                                 </div>
-                               ))}
-                             </div>
+                            <div className="space-y-4">
+                              {(ind.postIA.people || []).map((p, pIdx) => (
+                                <div key={p.id} className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 relative">
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-bold text-xs text-indigo-900 dark:text-indigo-200">{p.name}</span>
+                                    <span className="text-[10px] font-black text-green-500">
+                                      {((ind.baseline.people?.[pIdx]?.minutesSpent || 0) > p.minutesSpent) ? `-${(((ind.baseline.people?.[pIdx]?.minutesSpent || 0) - p.minutesSpent) / (ind.baseline.people?.[pIdx]?.minutesSpent || 1) * 100).toFixed(0)}% tempo` : ''}
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Minutos (IA)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={p.minutesSpent}
+                                        onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Freq (Mês)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={p.frequencyQuantity}
+                                        onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           )}
                           {/* (Outros tipos de post-IA mantidos conforme original) */}
                         </div>
@@ -504,18 +518,18 @@ const ProjectDetail: React.FC = () => {
 
                       <div className="bg-slate-950 p-6 flex justify-between items-center text-white">
                         <div className="flex gap-12">
-                           <div className="flex flex-col">
-                             <span className="text-[9px] font-black uppercase text-slate-500">Melhoria Estimada</span>
-                             <span className="text-xl font-black text-indigo-400">+{stats.improvementPct}%</span>
-                           </div>
-                           <div className="flex flex-col border-l border-slate-800 pl-12">
-                             <span className="text-[9px] font-black uppercase text-slate-500">Economia Mensal</span>
-                             <span className="text-xl font-black text-green-400">R$ {stats.monthlyEconomy.toLocaleString()}</span>
-                           </div>
+                          <div className="flex flex-col">
+                            <span className="text-[9px] font-black uppercase text-slate-500">Melhoria Estimada</span>
+                            <span className="text-xl font-black text-indigo-400">+{stats.improvementPct}%</span>
+                          </div>
+                          <div className="flex flex-col border-l border-slate-800 pl-12">
+                            <span className="text-[9px] font-black uppercase text-slate-500">Economia Mensal</span>
+                            <span className="text-xl font-black text-green-400">R$ {stats.monthlyEconomy.toLocaleString()}</span>
+                          </div>
                         </div>
                         <div className="text-right">
-                           <span className="text-[10px] font-black uppercase text-slate-500 block">Confidência do ROI</span>
-                           <span className="px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-[10px] font-black border border-green-500/30">ALTA</span>
+                          <span className="text-[10px] font-black uppercase text-slate-500 block">Confidência do ROI</span>
+                          <span className="px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-[10px] font-black border border-green-500/30">ALTA</span>
                         </div>
                       </div>
                     </div>
@@ -530,13 +544,41 @@ const ProjectDetail: React.FC = () => {
               <div className="grid grid-cols-2 gap-8">
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Nome do Projeto</label>
-                  <input className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500" defaultValue={project.name} />
+                  <input
+                    className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={project.name || ''}
+                    onChange={async (e) => {
+                      const newName = e.target.value;
+                      setProject({ ...project, name: newName });
+                      await saveProject({ name: newName });
+                    }}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Patrocinador (Sponsor)</label>
-                  <input className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500" defaultValue={project.sponsor} />
+                  <input
+                    className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={project.sponsor || ''}
+                    onChange={async (e) => {
+                      const newSponsor = e.target.value;
+                      setProject({ ...project, sponsor: newSponsor });
+                      await saveProject({ sponsor: newSponsor });
+                    }}
+                  />
                 </div>
-                {/* ... outros campos ... */}
+              </div>
+              <div className="mt-8 space-y-2">
+                <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Descrição da Iniciativa</label>
+                <textarea
+                  className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all h-32"
+                  value={project.description || ''}
+                  onChange={async (e) => {
+                    const newDescription = e.target.value;
+                    setProject({ ...project, description: newDescription });
+                    await saveProject({ description: newDescription });
+                  }}
+                  placeholder="Descreva brevemente o objetivo do projeto e o problema que ele resolve..."
+                />
               </div>
             </div>
           )}

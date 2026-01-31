@@ -137,23 +137,26 @@ export const projectService = {
 
     // Atualizar projeto
     async update(id: string, updates: Partial<Project>): Promise<Project> {
+        // Construir objeto de atualização apenas com campos fornecidos
+        const updateData: any = {};
+
+        if (updates.name !== undefined) updateData.name = updates.name;
+        if (updates.description !== undefined) updateData.description = updates.description === '' ? '' : updates.description;
+        if (updates.status !== undefined) updateData.status = updates.status;
+        if (updates.development_type !== undefined) updateData.development_type = updates.development_type;
+        if (updates.start_date !== undefined) updateData.start_date = updates.start_date;
+        if (updates.go_live_date !== undefined) updateData.go_live_date = updates.go_live_date || null;
+        if (updates.end_date !== undefined) updateData.end_date = updates.end_date || null;
+        if (updates.implementation_cost !== undefined) updateData.implementation_cost = updates.implementation_cost;
+        if (updates.monthly_maintenance_cost !== undefined) updateData.monthly_maintenance_cost = updates.monthly_maintenance_cost;
+        if (updates.business_area !== undefined) updateData.business_area = updates.business_area || null;
+        if (updates.sponsor !== undefined) updateData.sponsor = updates.sponsor === '' ? null : updates.sponsor;
+        if (updates.roi_percentage !== undefined) updateData.roi_percentage = updates.roi_percentage || null;
+        if (updates.total_economy_annual !== undefined) updateData.total_economy_annual = updates.total_economy_annual || null;
+
         const { data, error } = await supabase
             .from('projects')
-            .update({
-                name: updates.name,
-                description: updates.description,
-                status: updates.status,
-                development_type: updates.development_type,
-                start_date: updates.start_date,
-                go_live_date: updates.go_live_date || null,
-                end_date: updates.end_date || null,
-                implementation_cost: updates.implementation_cost,
-                monthly_maintenance_cost: updates.monthly_maintenance_cost,
-                business_area: updates.business_area || null,
-                sponsor: updates.sponsor || null,
-                roi_percentage: updates.roi_percentage || null,
-                total_economy_annual: updates.total_economy_annual || null,
-            })
+            .update(updateData)
             .eq('id', id)
             .select()
             .single();
