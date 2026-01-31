@@ -4,11 +4,17 @@ import { projectService } from '../services/projectService';
 import { Project } from '../types';
 import { STATUS_COLORS, DEVELOPMENT_LABELS } from '../constants';
 import { Link } from 'react-router-dom';
+import ConfirmModal from '../components/ConfirmModal';
+import ToastContainer from '../components/ToastContainer';
+import { useToast } from '../hooks/useToast';
+import { useConfirm } from '../hooks/useConfirm';
 
 const ProjectList: React.FC = () => {
   const [filter, setFilter] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const { toasts, showToast, removeToast } = useToast();
+  const { confirmState, confirm, handleCancel } = useConfirm();
 
   useEffect(() => {
     loadProjects();
@@ -31,8 +37,41 @@ const ProjectList: React.FC = () => {
     p.business_area?.toLowerCase().includes(filter.toLowerCase())
   );
 
+  const handleDelete = async (project: Project) => {
+    const confirmed = await confirm({
+      title: 'Excluir Projeto',
+      message: `Tem certeza que deseja excluir o projeto "${project.name}"? Esta ação não pode ser desfeita.`,
+      confirmText: 'Excluir',
+      cancelText: 'Cancelar',
+      variant: 'danger',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await projectService.delete(project.id);
+      setProjects(projects.filter(p => p.id !== project.id));
+      showToast('Projeto excluído com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao deletar projeto:', error);
+      showToast('Erro ao deletar projeto', 'error');
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
+        variant={confirmState.variant}
+        onConfirm={() => confirmState.onConfirm?.()}
+        onCancel={handleCancel}
+      />
+      <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
           <h2 className="text-2xl font-bold">Portfólio de Projetos</h2>
@@ -77,7 +116,16 @@ const ProjectList: React.FC = () => {
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${STATUS_COLORS[p.status]}`}>
                     {p.status}
                   </span>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase">{p.start_date}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleDelete(p)}
+                      className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                      title="Excluir projeto"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">{p.start_date}</span>
+                  </div>
                 </div>
                 <h3 className="text-xl font-bold mb-1 group-hover:text-indigo-500 transition-colors">
                   {p.name}
@@ -89,7 +137,7 @@ const ProjectList: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-slate-50 dark:border-slate-800">
                   <div>
                     <span className="text-[10px] uppercase text-slate-400 font-black block tracking-widest mb-1">Economia</span>
-                    <span className="text-sm font-black">R$ {p.total_economy_annual?.toLocaleString()}</span>
+                    <span className="text-sm font-black">R$ {p.total_economy_annual?.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   <div>
                     <span className="text-[10px] uppercase text-slate-400 font-black block tracking-widest mb-1">ROI</span>
@@ -108,7 +156,8 @@ const ProjectList: React.FC = () => {
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 };
 

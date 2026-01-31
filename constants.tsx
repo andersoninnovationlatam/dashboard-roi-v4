@@ -23,8 +23,8 @@ export const IMPROVEMENT_LABELS: Record<string, string> = {
   decision_quality: 'Qualidade Decisão',
   speed: 'Velocidade',
   satisfaction: 'Satisfação',
-  related_costs: 'Custos Relacionados',
-  other: 'Outros'
+  related_costs: 'Custos Relacionados'
+  /*other: 'Outros'*/
 };
 
 export const DEVELOPMENT_LABELS: Record<string, string> = {
