@@ -17,6 +17,11 @@ const AppContent: React.FC = () => {
     const saved = localStorage.getItem('theme');
     return (saved as 'dark' | 'light') || 'dark';
   });
+  
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem('sidebarOpen');
+    return saved !== null ? saved === 'true' : true;
+  });
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -28,8 +33,16 @@ const AppContent: React.FC = () => {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    localStorage.setItem('sidebarOpen', String(sidebarOpen));
+  }, [sidebarOpen]);
+
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  const toggleSidebar = () => {
+    setSidebarOpen(prev => !prev);
   };
 
   if (loading) {
@@ -62,9 +75,20 @@ const AppContent: React.FC = () => {
     <Router>
       <div className="flex bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-300">
         <div className="no-print">
-          <Sidebar />
+          <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} />
         </div>
-        <main className="flex-1 ml-0 md:ml-64 p-6 md:p-10">
+        <main className={`flex-1 transition-all duration-300 p-6 md:p-10 ${sidebarOpen ? 'md:ml-64' : 'md:ml-20'}`}>
+          {/* Botão de menu para mobile */}
+          <button
+            onClick={toggleSidebar}
+            className="md:hidden fixed top-4 left-4 z-30 w-10 h-10 bg-indigo-600 text-white rounded-lg flex items-center justify-center shadow-lg hover:bg-indigo-500 transition-colors"
+            aria-label="Toggle sidebar"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          
           <div className="max-w-7xl mx-auto text-slate-900 dark:text-slate-100">
             <Routes>
               <Route path="/" element={<ExecutiveDashboard />} />
