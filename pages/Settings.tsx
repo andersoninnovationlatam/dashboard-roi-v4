@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { authService } from '../services/authService';
+import { aiPromptService, DEFAULT_PROMPT } from '../services/aiPromptService';
 
 interface SettingsProps {
   theme: 'dark' | 'light';
   toggleTheme: () => void;
 }
 
-const DEFAULT_PROMPT = "Analise os dados de ROI de projetos de IA desta organização:\n- ROI Total: {roi_total}%\n- Economia Anual: R$ {economia_anual}\n- Horas economizadas: {horas_economizadas_ano}h\n- Projetos em produção: {projetos_producao}\n- Payback médio: {payback_medio} meses\n\nForneça um insight estratégico curto (3 frases) em Português sobre o desempenho e onde focar.";
-
 const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
   const { profile, updateProfile, user } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [loadingPrompt, setLoadingPrompt] = useState(false);
   const [profileData, setProfileData] = useState({
     full_name: '',
     phone: '',
@@ -29,9 +29,8 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    const savedPrompt = localStorage.getItem('ai_insight_prompt') || DEFAULT_PROMPT;
-    setPrompt(savedPrompt);
-    
+    loadPrompt();
+
     if (profile) {
       setProfileData({
         full_name: profile.full_name || '',
@@ -42,16 +41,36 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
     }
   }, [profile]);
 
-  const handleSavePrompt = () => {
-    localStorage.setItem('ai_insight_prompt', prompt);
-    setIsModalOpen(false);
-    setMessage({ type: 'success', text: 'Prompt salvo com sucesso!' });
-    setTimeout(() => setMessage(null), 3000);
+  const loadPrompt = async () => {
+    try {
+      const savedPrompt = await aiPromptService.getPrompt();
+      setPrompt(savedPrompt);
+    } catch (error) {
+      console.error('Erro ao carregar prompt:', error);
+      setPrompt(DEFAULT_PROMPT);
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    setLoadingPrompt(true);
+    try {
+      await aiPromptService.savePrompt(prompt);
+      setIsModalOpen(false);
+      setMessage({ type: 'success', text: 'Prompt salvo com sucesso!' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error: any) {
+      console.error('Erro detalhado ao salvar prompt:', error);
+      const errorMessage = error.message || error.toString() || 'Erro ao salvar prompt. Verifique o console para mais detalhes.';
+      setMessage({ type: 'error', text: errorMessage });
+      setTimeout(() => setMessage(null), 5000); // Mostra por mais tempo para ler
+    } finally {
+      setLoadingPrompt(false);
+    }
   };
 
   const handleSaveProfile = async () => {
     if (!user) return;
-    
+
     setLoading(true);
     try {
       await updateProfile(profileData);
@@ -92,11 +111,10 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
   return (
     <div className="space-y-8">
       {message && (
-        <div className={`p-4 rounded-xl border ${
-          message.type === 'success' 
-            ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-800' 
-            : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800'
-        }`}>
+        <div className={`p-4 rounded-xl border ${message.type === 'success'
+          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-800'
+          : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800'
+          }`}>
           {message.text}
         </div>
       )}
@@ -110,14 +128,14 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-8 shadow-sm">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold">Meu Perfil</h3>
-          <button 
+          <button
             onClick={() => setIsProfileModalOpen(true)}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all"
           >
             Editar Perfil
           </button>
         </div>
-        
+
         <div className="space-y-4">
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
             <p className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">E-mail</p>
@@ -148,7 +166,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
         <div className="space-y-4">
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Nova Senha</label>
-            <input 
+            <input
               type="password"
               value={passwordData.newPassword}
               onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
@@ -158,7 +176,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
           </div>
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Confirmar Nova Senha</label>
-            <input 
+            <input
               type="password"
               value={passwordData.confirmPassword}
               onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
@@ -166,7 +184,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
               placeholder="Confirmar nova senha"
             />
           </div>
-          <button 
+          <button
             onClick={handleUpdatePassword}
             disabled={loading}
             className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all disabled:opacity-50"
@@ -184,7 +202,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
             <p className="font-bold">Tema da Interface</p>
             <p className="text-sm text-slate-500 dark:text-slate-400">Alternar entre os modos claro e escuro.</p>
           </div>
-          <button 
+          <button
             onClick={toggleTheme}
             className="p-3 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
           >
@@ -203,7 +221,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
           <h3 className="text-lg font-bold">Inteligência Artificial</h3>
           <span className="px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-[10px] font-black border border-green-500/30 uppercase">Ativo</span>
         </div>
-        
+
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between">
           <div className="flex gap-4 items-center">
             <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg">
@@ -214,7 +232,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
               <p className="text-sm text-slate-500 dark:text-slate-400">Configure como a IA analisa seus dados estratégicos.</p>
             </div>
           </div>
-          <button 
+          <button
             onClick={() => setIsModalOpen(true)}
             className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all"
           >
@@ -236,7 +254,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
             <div className="p-8 space-y-4">
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Nome Completo</label>
-                <input 
+                <input
                   type="text"
                   value={profileData.full_name}
                   onChange={(e) => setProfileData({ ...profileData, full_name: e.target.value })}
@@ -245,7 +263,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Telefone</label>
-                <input 
+                <input
                   type="tel"
                   value={profileData.phone}
                   onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
@@ -254,7 +272,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Cargo</label>
-                <input 
+                <input
                   type="text"
                   value={profileData.position}
                   onChange={(e) => setProfileData({ ...profileData, position: e.target.value })}
@@ -263,7 +281,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Departamento</label>
-                <input 
+                <input
                   type="text"
                   value={profileData.department}
                   onChange={(e) => setProfileData({ ...profileData, department: e.target.value })}
@@ -295,7 +313,7 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 Utilize as variáveis entre chaves <code>{'{variavel}'}</code> para que a plataforma insira os dados reais no momento da análise.
               </p>
-              <textarea 
+              <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 className="w-full h-64 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-indigo-300"
@@ -308,7 +326,9 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
             </div>
             <div className="p-6 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3">
               <button onClick={() => setPrompt(DEFAULT_PROMPT)} className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700">Resetar Padrão</button>
-              <button onClick={handleSavePrompt} className="px-8 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all">Salvar Configuração</button>
+              <button onClick={handleSavePrompt} disabled={loadingPrompt} className="px-8 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all disabled:opacity-50">
+                {loadingPrompt ? 'Salvando...' : 'Salvar Configuração'}
+              </button>
             </div>
           </div>
         </div>
