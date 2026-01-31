@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { projectService, indicatorService } from '../services/projectService';
-import { Project, Indicator, ProjectStatus, ImprovementType, FrequencyUnit, PersonInvolved, IndicatorData, ToolCost } from '../types';
+import { Project, Indicator, ProjectStatus, DevelopmentType, ImprovementType, FrequencyUnit, PersonInvolved, IndicatorData, ToolCost } from '../types';
 import { DEVELOPMENT_LABELS, STATUS_COLORS, IMPROVEMENT_LABELS } from '../constants';
 import { GoogleGenAI } from "@google/genai";
 import { aiPromptService } from '../services/aiPromptService';
@@ -30,6 +30,32 @@ const ProjectDetail: React.FC = () => {
   // Toast e Confirm
   const { toasts, showToast, removeToast } = useToast();
   const { confirmState, confirm, handleCancel } = useConfirm();
+
+  // Multiplicadores de frequência editáveis
+  const [frequencyMultipliers, setFrequencyMultipliers] = useState<Record<FrequencyUnit, number>>(() => {
+    const stored = localStorage.getItem('frequencyMultipliers');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    return {
+      [FrequencyUnit.HOUR]: 2080,
+      [FrequencyUnit.DAY]: 260,
+      [FrequencyUnit.WEEK]: 52,
+      [FrequencyUnit.MONTH]: 12,
+      [FrequencyUnit.QUARTER]: 4,
+      [FrequencyUnit.YEAR]: 1,
+    };
+  });
+
+  const updateFrequencyMultiplier = (unit: FrequencyUnit, value: number) => {
+    const newMultipliers = { ...frequencyMultipliers, [unit]: value };
+    setFrequencyMultipliers(newMultipliers);
+    localStorage.setItem('frequencyMultipliers', JSON.stringify(newMultipliers));
+  };
+
+  const getFrequencyMultiplier = (unit: FrequencyUnit): number => {
+    return frequencyMultipliers[unit] || 1;
+  };
 
   useEffect(() => {
     loadProjectData();
@@ -74,28 +100,8 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
-  // Função auxiliar para converter frequência para anual
-  const getFrequencyMultiplierAnnual = (unit: FrequencyUnit): number => {
-    switch (unit) {
-      case FrequencyUnit.HOUR:
-        return 24 * 365;
-      case FrequencyUnit.DAY:
-        return 365;
-      case FrequencyUnit.WEEK:
-        return 52;
-      case FrequencyUnit.MONTH:
-        return 12;
-      case FrequencyUnit.QUARTER:
-        return 4;
-      case FrequencyUnit.YEAR:
-        return 1;
-      default:
-        return 1;
-    }
-  };
-
   const calculateAnnualFrequency = (frequencyQuantity: number, frequencyUnit: FrequencyUnit): number => {
-    return frequencyQuantity * getFrequencyMultiplierAnnual(frequencyUnit);
+    return frequencyQuantity * getFrequencyMultiplier(frequencyUnit);
   };
 
   // Calcular métricas do projeto
@@ -255,8 +261,15 @@ const ProjectDetail: React.FC = () => {
         break;
 
       case ImprovementType.RELATED_COSTS:
-        monthlyEconomy = (ind.baseline.cost || 0) - (ind.postIA.cost || 0);
-        improvementPct = ind.baseline.cost ? (((ind.baseline.cost - (ind.postIA.cost || 0)) / ind.baseline.cost) * 100).toFixed(1) : "0";
+        // Calcular custo anual baseado em tools com frequência
+        const relatedCostsAnnual = (ind.baseline.tools || []).reduce((acc, tool) => {
+          const freqQty = (tool as any).frequencyQuantity || 1;
+          const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
+          const multiplier = getFrequencyMultiplier(freqUnit);
+          return acc + (tool.monthlyCost * freqQty * multiplier);
+        }, 0);
+        monthlyEconomy = relatedCostsAnnual / 12; // Converter anual para mensal
+        improvementPct = relatedCostsAnnual > 0 ? "100" : "0";
         break;
 
       default:
@@ -265,7 +278,7 @@ const ProjectDetail: React.FC = () => {
     }
 
     return {
-      monthlyEconomy,
+      monthlyEconomy: monthlyEconomy.toFixed(2),
       annualEconomy: monthlyEconomy * 12,
       improvementPct
     };
@@ -278,7 +291,7 @@ const ProjectDetail: React.FC = () => {
     // Calcular ROI total baseado nos indicadores
     const totalEconomy = indicators.reduce((sum, ind) => {
       const stats = calculateIndicatorStats(ind);
-      return sum + (stats.monthlyEconomy || 0);
+      return sum + parseFloat(stats.monthlyEconomy || '0.00');
     }, 0);
 
     const annualEconomy = totalEconomy * 12;
@@ -318,10 +331,15 @@ const ProjectDetail: React.FC = () => {
         ...updates,
       });
       setProject(updated);
+
+      // Se os custos foram alterados, recalcular ROI
+      if (updates.implementation_cost !== undefined || updates.monthly_maintenance_cost !== undefined) {
+        await recalculateAndUpdateProject();
+      }
     } catch (error) {
       console.error('Erro ao salvar projeto:', error);
     }
-  }, [project]);
+  }, [project, recalculateAndUpdateProject]);
 
   if (loading) {
     return <div className="p-10 text-center">Carregando...</div>;
@@ -435,6 +453,70 @@ const ProjectDetail: React.FC = () => {
     newArr[idx].postIA.people = (newArr[idx].postIA.people || []).filter((_, i) => i !== pIdx);
     setIndicators(newArr);
     // Salvar automaticamente após remover
+    await saveIndicator(newArr[idx]);
+  };
+
+  // Funções para gerenciar custos relacionados
+  interface RelatedCost {
+    id: string;
+    name: string;
+    cost: number;
+    frequencyQuantity: number;
+    frequencyUnit: FrequencyUnit;
+  }
+
+  const getRelatedCosts = (ind: Indicator): RelatedCost[] => {
+    if (!ind.baseline.tools) return [];
+    return ind.baseline.tools.map(tool => ({
+      id: tool.id,
+      name: tool.name,
+      cost: tool.monthlyCost,
+      frequencyQuantity: (tool as any).frequencyQuantity || 1,
+      frequencyUnit: (tool as any).frequencyUnit || FrequencyUnit.MONTH,
+    }));
+  };
+
+  const addRelatedCost = async (idx: number) => {
+    const newArr = [...indicators];
+    const newCost: RelatedCost = {
+      id: Date.now().toString(),
+      name: 'Novo Custo',
+      cost: 0,
+      frequencyQuantity: 1,
+      frequencyUnit: FrequencyUnit.MONTH,
+    };
+    if (!newArr[idx].baseline.tools) {
+      newArr[idx].baseline.tools = [];
+    }
+    newArr[idx].baseline.tools.push({
+      id: newCost.id,
+      name: newCost.name,
+      monthlyCost: newCost.cost,
+      otherCosts: newCost.frequencyQuantity,
+    } as any);
+    (newArr[idx].baseline.tools[newArr[idx].baseline.tools.length - 1] as any).frequencyQuantity = newCost.frequencyQuantity;
+    (newArr[idx].baseline.tools[newArr[idx].baseline.tools.length - 1] as any).frequencyUnit = newCost.frequencyUnit;
+    setIndicators(newArr);
+    await saveIndicator(newArr[idx]);
+  };
+
+  const updateRelatedCost = async (idx: number, costIdx: number, field: keyof RelatedCost, value: any) => {
+    const newArr = [...indicators];
+    const tool = newArr[idx].baseline.tools?.[costIdx];
+    if (tool) {
+      if (field === 'name') tool.name = value;
+      if (field === 'cost') tool.monthlyCost = value;
+      if (field === 'frequencyQuantity') (tool as any).frequencyQuantity = value;
+      if (field === 'frequencyUnit') (tool as any).frequencyUnit = value;
+    }
+    setIndicators(newArr);
+    await saveIndicator(newArr[idx]);
+  };
+
+  const removeRelatedCost = async (idx: number, costIdx: number) => {
+    const newArr = [...indicators];
+    newArr[idx].baseline.tools = (newArr[idx].baseline.tools || []).filter((_, i) => i !== costIdx);
+    setIndicators(newArr);
     await saveIndicator(newArr[idx]);
   };
 
@@ -706,9 +788,9 @@ const ProjectDetail: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-12">
+                        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-12 ">
                           {/* Baseline Section */}
-                          <div className="space-y-6">
+                          <div className={`space-y-6 ${ind.improvement_type === ImprovementType.RELATED_COSTS ? 'md:col-span-1' : ''}`}>
                             <div className="flex items-center gap-2">
                               <div className="w-2.5 h-2.5 rounded-full bg-slate-400"></div>
                               <h4 className="text-sm font-black uppercase text-slate-400 tracking-widest">Situação Atual (Baseline)</h4>
@@ -726,7 +808,7 @@ const ProjectDetail: React.FC = () => {
                                       />
                                       <button onClick={() => removePerson(idx, pIdx)} className="text-slate-300 hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
                                     </div>
-                                    <div className="grid grid-cols-3 gap-3">
+                                    <div className="grid grid-cols-2 gap-3">
                                       <div>
                                         <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">R$/Hora</label>
                                         <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.hourlyRate} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'hourlyRate', parseFloat(e.target.value) || 0)} />
@@ -735,11 +817,33 @@ const ProjectDetail: React.FC = () => {
                                         <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Minutos</label>
                                         <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.minutesSpent} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)} />
                                       </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
                                       <div>
-                                        <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Freq (Mês)</label>
+                                        <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Frequência</label>
                                         <input type="number" className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.frequencyQuantity} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)} />
                                       </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Unidade</label>
+                                        <select className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold" value={p.frequencyUnit} onChange={(e) => updatePerson(idx, 'baseline', pIdx, 'frequencyUnit', e.target.value as FrequencyUnit)}>
+                                          <option value={FrequencyUnit.HOUR}>Hora</option>
+                                          <option value={FrequencyUnit.DAY}>Dia</option>
+                                          <option value={FrequencyUnit.WEEK}>Semana</option>
+                                          <option value={FrequencyUnit.MONTH}>Mês</option>
+                                          <option value={FrequencyUnit.QUARTER}>Trimestre</option>
+                                          <option value={FrequencyUnit.YEAR}>Ano</option>
+                                        </select>
+                                      </div>
                                     </div>
+                                    {/*<div>
+                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Multiplicador Anual</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                                        value={getFrequencyMultiplier(p.frequencyUnit)}
+                                        onChange={(e) => updateFrequencyMultiplier(p.frequencyUnit, parseFloat(e.target.value) || 1)}
+                                      />
+                                    </div>*/}
                                   </div>
                                 ))}
                                 <button onClick={() => addPerson(idx)} className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">+ Adicionar Novo Colaborador/Fluxo</button>
@@ -941,15 +1045,64 @@ const ProjectDetail: React.FC = () => {
                             {/* RELATED_COSTS */}
                             {ind.improvement_type === ImprovementType.RELATED_COSTS && (
                               <div className="space-y-4">
-                                <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60">
-                                  <label className="text-[9px] uppercase font-bold text-slate-400 block mb-2">Custo Mensal Relacionado (R$)</label>
-                                  <input
-                                    type="number"
-                                    className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-slate-200 dark:border-slate-700 text-sm font-bold"
-                                    value={ind.baseline.cost || 0}
-                                    onChange={(e) => updateIndicatorData(idx, 'baseline', 'cost', parseFloat(e.target.value) || 0)}
-                                  />
-                                </div>
+                                {getRelatedCosts(ind).map((cost, costIdx) => (
+                                  <div key={cost.id} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60 space-y-3 relative">
+                                    <div className="flex justify-between items-center">
+                                      <input
+                                        className="bg-transparent font-bold text-xs border-none focus:ring-0 w-full"
+                                        value={cost.name}
+                                        onChange={(e) => updateRelatedCost(idx, costIdx, 'name', e.target.value)}
+                                        placeholder="Nome do custo"
+                                      />
+                                      <button onClick={() => removeRelatedCost(idx, costIdx)} className="text-slate-300 hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Valor (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                                        value={cost.cost}
+                                        onChange={(e) => updateRelatedCost(idx, costIdx, 'cost', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Frequência</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                                          value={cost.frequencyQuantity}
+                                          onChange={(e) => updateRelatedCost(idx, costIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Unidade</label>
+                                        <select
+                                          className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                                          value={cost.frequencyUnit}
+                                          onChange={(e) => updateRelatedCost(idx, costIdx, 'frequencyUnit', e.target.value as FrequencyUnit)}
+                                        >
+                                          <option value={FrequencyUnit.HOUR}>Hora</option>
+                                          <option value={FrequencyUnit.DAY}>Dia</option>
+                                          <option value={FrequencyUnit.WEEK}>Semana</option>
+                                          <option value={FrequencyUnit.MONTH}>Mês</option>
+                                          <option value={FrequencyUnit.QUARTER}>Trimestre</option>
+                                          <option value={FrequencyUnit.YEAR}>Ano</option>
+                                        </select>
+                                      </div>
+                                    </div>
+                                    {/*<div>
+                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Multiplicador Anual</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                                        value={getFrequencyMultiplier(cost.frequencyUnit)}
+                                        onChange={(e) => updateFrequencyMultiplier(cost.frequencyUnit, parseFloat(e.target.value) || 1)}
+                                      />
+                                    </div>*/}
+                                  </div>
+                                ))}
+                                <button onClick={() => addRelatedCost(idx)} className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">+ Adicionar Novo Custo</button>
                               </div>
                             )}
 
@@ -970,23 +1123,27 @@ const ProjectDetail: React.FC = () => {
                           </div>
 
                           {/* Post-IA Section */}
-                          <div className="space-y-6">
-                            <div className="flex items-center gap-2">
-                              <div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div>
-                              <h4 className="text-sm font-black uppercase text-indigo-500 tracking-widest">Estado Desejado (Pós-IA)</h4>
-                            </div>
+                          {ind.improvement_type !== ImprovementType.RELATED_COSTS && (
+                            <div className="space-y-6">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div>
+                                <h4 className="text-sm font-black uppercase text-indigo-500 tracking-widest">Estado Desejado (Pós-IA)</h4>
+                              </div>
 
-                            {(ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) && (
-                              <div className="space-y-4">
-                                {(ind.postIA.people || []).map((p, pIdx) => (
-                                  <div key={p.id} className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 relative">
-                                    <div className="flex justify-between items-center">
-                                      <span className="font-bold text-xs text-indigo-900 dark:text-indigo-200">{p.name}</span>
-                                      <span className="text-[10px] font-black text-green-500">
-                                        {((ind.baseline.people?.[pIdx]?.minutesSpent || 0) > p.minutesSpent) ? `-${(((ind.baseline.people?.[pIdx]?.minutesSpent || 0) - p.minutesSpent) / (ind.baseline.people?.[pIdx]?.minutesSpent || 1) * 100).toFixed(0)}% tempo` : ''}
-                                      </span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
+                              {(ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) && (
+                                <div className="space-y-4">
+                                  {(ind.postIA.people || []).map((p, pIdx) => (
+                                    <div key={p.id} className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 relative">
+                                      <div className="flex justify-between items-center">
+                                        <input
+                                          className="bg-transparent font-bold text-xs border-none focus:ring-0 w-full text-indigo-900 dark:text-indigo-200"
+                                          value={p.name}
+                                          onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'name', e.target.value)}
+                                        />
+                                        <span className="text-[10px] font-black text-green-500">
+                                          {((ind.baseline.people?.[pIdx]?.minutesSpent || 0) > p.minutesSpent) ? `-${(((ind.baseline.people?.[pIdx]?.minutesSpent || 0) - p.minutesSpent) / (ind.baseline.people?.[pIdx]?.minutesSpent || 1) * 100).toFixed(0)}% tempo` : ''}
+                                        </span>
+                                      </div>
                                       <div>
                                         <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Minutos (IA)</label>
                                         <input
@@ -996,84 +1153,84 @@ const ProjectDetail: React.FC = () => {
                                           onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)}
                                         />
                                       </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Frequência</label>
+                                          <input
+                                            type="number"
+                                            className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            value={p.frequencyQuantity}
+                                            onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Unidade</label>
+                                          <select className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none" value={p.frequencyUnit} onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyUnit', e.target.value as FrequencyUnit)}>
+                                            <option value={FrequencyUnit.HOUR}>Hora</option>
+                                            <option value={FrequencyUnit.DAY}>Dia</option>
+                                            <option value={FrequencyUnit.WEEK}>Semana</option>
+                                            <option value={FrequencyUnit.MONTH}>Mês</option>
+                                            <option value={FrequencyUnit.QUARTER}>Trimestre</option>
+                                            <option value={FrequencyUnit.YEAR}>Ano</option>
+                                          </select>
+                                        </div>
+                                      </div>
+                                      {/*<div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Multiplicador Anual</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={getFrequencyMultiplier(p.frequencyUnit)}
+                                        onChange={(e) => updateFrequencyMultiplier(p.frequencyUnit, parseFloat(e.target.value) || 1)}
+                                      />
+                                    </div>*/}
+                                    </div>
+                                  ))}
+                                  {ind.improvement_type === ImprovementType.DECISION_QUALITY && (
+                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 mt-4">
                                       <div>
-                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Freq (Mês)</label>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Quantidade de Decisões/Mês com IA</label>
                                         <input
                                           type="number"
-                                          className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                          value={p.frequencyQuantity}
-                                          onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)}
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.decisionCount || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'decisionCount', parseFloat(e.target.value) || 0)}
                                         />
                                       </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Precisão das Decisões com IA (%)</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="100"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.accuracyPct || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'accuracyPct', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo por Erro com IA (R$)</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.errorCost || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'errorCost', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      {ind.baseline.accuracyPct && ind.postIA.accuracyPct && (
+                                        <p className="text-[10px] font-black text-green-500 mt-2">
+                                          Melhoria na Precisão: +{((ind.postIA.accuracyPct - ind.baseline.accuracyPct) / ind.baseline.accuracyPct * 100).toFixed(1)}%
+                                        </p>
+                                      )}
                                     </div>
-                                  </div>
-                                ))}
-                                {ind.improvement_type === ImprovementType.DECISION_QUALITY && (
-                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 mt-4">
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Quantidade de Decisões/Mês com IA</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.decisionCount || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'decisionCount', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Precisão das Decisões com IA (%)</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.accuracyPct || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'accuracyPct', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo por Erro com IA (R$)</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.errorCost || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'errorCost', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    {ind.baseline.accuracyPct && ind.postIA.accuracyPct && (
-                                      <p className="text-[10px] font-black text-green-500 mt-2">
-                                        Melhoria na Precisão: +{((ind.postIA.accuracyPct - ind.baseline.accuracyPct) / ind.baseline.accuracyPct * 100).toFixed(1)}%
-                                      </p>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* REVENUE_INCREASE Post-IA */}
-                            {ind.improvement_type === ImprovementType.REVENUE_INCREASE && (
-                              <div className="space-y-4">
-                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
-                                  <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Mensal com IA (R$)</label>
-                                  <input
-                                    type="number"
-                                    className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                    value={ind.postIA.revenue || 0}
-                                    onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
-                                  />
-                                  {ind.baseline.revenue && ind.postIA.revenue && (
-                                    <p className="text-[10px] font-black text-green-500 mt-2">
-                                      +{(((ind.postIA.revenue - ind.baseline.revenue) / ind.baseline.revenue) * 100).toFixed(1)}% receita
-                                    </p>
                                   )}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* MARGIN_IMPROVEMENT Post-IA */}
-                            {ind.improvement_type === ImprovementType.MARGIN_IMPROVEMENT && (
-                              <div className="space-y-4">
-                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border-indigo-100 dark:border-indigo-900/30 space-y-3">
-                                  <div>
+                              {/* REVENUE_INCREASE Post-IA */}
+                              {ind.improvement_type === ImprovementType.REVENUE_INCREASE && (
+                                <div className="space-y-4">
+                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                                     <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Mensal com IA (R$)</label>
                                     <input
                                       type="number"
@@ -1081,198 +1238,201 @@ const ProjectDetail: React.FC = () => {
                                       value={ind.postIA.revenue || 0}
                                       onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
                                     />
+                                    {ind.baseline.revenue && ind.postIA.revenue && (
+                                      <p className="text-[10px] font-black text-green-500 mt-2">
+                                        +{(((ind.postIA.revenue - ind.baseline.revenue) / ind.baseline.revenue) * 100).toFixed(1)}% receita
+                                      </p>
+                                    )}
                                   </div>
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo Mensal com IA (R$)</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.cost || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
-                                  {ind.baseline.revenue && ind.baseline.cost && ind.postIA.revenue && ind.postIA.cost && (
-                                    <p className="text-[10px] font-black text-green-500 mt-2">
-                                      Margem: R$ {((ind.postIA.revenue - ind.postIA.cost) - (ind.baseline.revenue - ind.baseline.cost)).toLocaleString()}
-                                    </p>
-                                  )}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* RISK_REDUCTION Post-IA */}
-                            {ind.improvement_type === ImprovementType.RISK_REDUCTION && (
-                              <div className="space-y-4">
-                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Probabilidade do Risco com IA (%)</label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max="100"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.probability || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'probability', parseFloat(e.target.value) || 0)}
-                                    />
+                              {/* MARGIN_IMPROVEMENT Post-IA */}
+                              {ind.improvement_type === ImprovementType.MARGIN_IMPROVEMENT && (
+                                <div className="space-y-4">
+                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Mensal com IA (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.revenue || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo Mensal com IA (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.cost || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    {ind.baseline.revenue && ind.baseline.cost && ind.postIA.revenue && ind.postIA.cost && (
+                                      <p className="text-[10px] font-black text-green-500 mt-2">
+                                        Margem: R$ {((ind.postIA.revenue - ind.postIA.cost) - (ind.baseline.revenue - ind.baseline.cost)).toLocaleString()}
+                                      </p>
+                                    )}
                                   </div>
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Impacto Financeiro com IA (R$)</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.impact || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'impact', parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo de Mitigação Mensal com IA (R$)</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.mitigationCost || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'mitigationCost', parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
-                                  {ind.baseline.probability && ind.baseline.impact && ind.postIA.probability && ind.postIA.impact && (
-                                    <p className="text-[10px] font-black text-green-500 mt-2">
-                                      Redução de Risco: {((((ind.baseline.probability / 100) * ind.baseline.impact) - ((ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0))) / ((ind.baseline.probability / 100) * ind.baseline.impact) * 100).toFixed(1)}%
-                                    </p>
-                                  )}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* SATISFACTION Post-IA */}
-                            {ind.improvement_type === ImprovementType.SATISFACTION && (
-                              <div className="space-y-4">
-                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Taxa de Churn com IA (%)</label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max="100"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.churnRate || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'churnRate', parseFloat(e.target.value) || 0)}
-                                    />
+                              {/* RISK_REDUCTION Post-IA */}
+                              {ind.improvement_type === ImprovementType.RISK_REDUCTION && (
+                                <div className="space-y-4">
+                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Probabilidade do Risco com IA (%)</label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.probability || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'probability', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Impacto Financeiro com IA (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.impact || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'impact', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo de Mitigação Mensal com IA (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.mitigationCost || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'mitigationCost', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    {ind.baseline.probability && ind.baseline.impact && ind.postIA.probability && ind.postIA.impact && (
+                                      <p className="text-[10px] font-black text-green-500 mt-2">
+                                        Redução de Risco: {((((ind.baseline.probability / 100) * ind.baseline.impact) - ((ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0))) / ((ind.baseline.probability / 100) * ind.baseline.impact) * 100).toFixed(1)}%
+                                      </p>
+                                    )}
                                   </div>
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Número de Clientes com IA</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.clientCount || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'clientCount', parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor por Cliente com IA (R$)</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.valuePerClient || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'valuePerClient', parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Score NPS/CSAT com IA</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.score || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'score', parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Adicional Mensal com IA (R$)</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.revenue || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
-                                  {ind.baseline.score && ind.postIA.score && (
-                                    <p className="text-[10px] font-black text-green-500 mt-2">
-                                      Melhoria no Score: +{((ind.postIA.score - ind.baseline.score) / ind.baseline.score * 100).toFixed(1)}%
-                                    </p>
-                                  )}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* ANALYTICAL_CAPACITY Post-IA */}
-                            {ind.improvement_type === ImprovementType.ANALYTICAL_CAPACITY && (
-                              <div className="space-y-4">
-                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Volume de Análises/Mês com IA</label>
+                              {/* SATISFACTION Post-IA */}
+                              {ind.improvement_type === ImprovementType.SATISFACTION && (
+                                <div className="space-y-4">
+                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Taxa de Churn com IA (%)</label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.churnRate || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'churnRate', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Número de Clientes com IA</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.clientCount || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'clientCount', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor por Cliente com IA (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.valuePerClient || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'valuePerClient', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Score NPS/CSAT com IA</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.score || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'score', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Adicional Mensal com IA (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.revenue || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    {ind.baseline.score && ind.postIA.score && (
+                                      <p className="text-[10px] font-black text-green-500 mt-2">
+                                        Melhoria no Score: +{((ind.postIA.score - ind.baseline.score) / ind.baseline.score * 100).toFixed(1)}%
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* ANALYTICAL_CAPACITY Post-IA */}
+                              {ind.improvement_type === ImprovementType.ANALYTICAL_CAPACITY && (
+                                <div className="space-y-4">
+                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Volume de Análises/Mês com IA</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.volume || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'volume', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo por Análise com IA (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={ind.postIA.cost || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    {ind.baseline.volume && ind.baseline.cost && ind.postIA.volume && ind.postIA.cost && (
+                                      <p className="text-[10px] font-black text-green-500 mt-2">
+                                        Economia: R$ {((ind.baseline.volume * ind.baseline.cost) - (ind.postIA.volume * ind.postIA.cost)).toLocaleString()}/mês
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+
+                              {/* OTHER Post-IA */}
+                              {ind.improvement_type === ImprovementType.OTHER && (
+                                <div className="space-y-4">
+                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor Mensal com IA (R$)</label>
                                     <input
                                       type="number"
                                       className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.volume || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'volume', parseFloat(e.target.value) || 0)}
+                                      value={ind.postIA.value || 0}
+                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'value', parseFloat(e.target.value) || 0)}
                                     />
+                                    {ind.baseline.value && ind.postIA.value && (
+                                      <p className="text-[10px] font-black text-green-500 mt-2">
+                                        Ganho: R$ {(ind.postIA.value - ind.baseline.value).toLocaleString()}/mês
+                                      </p>
+                                    )}
                                   </div>
-                                  <div>
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo por Análise com IA (R$)</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.cost || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
-                                  {ind.baseline.volume && ind.baseline.cost && ind.postIA.volume && ind.postIA.cost && (
-                                    <p className="text-[10px] font-black text-green-500 mt-2">
-                                      Economia: R$ {((ind.baseline.volume * ind.baseline.cost) - (ind.postIA.volume * ind.postIA.cost)).toLocaleString()}/mês
-                                    </p>
-                                  )}
                                 </div>
-                              </div>
-                            )}
-
-                            {/* RELATED_COSTS Post-IA */}
-                            {ind.improvement_type === ImprovementType.RELATED_COSTS && (
-                              <div className="space-y-4">
-                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
-                                  <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo Mensal Relacionado com IA (R$)</label>
-                                  <input
-                                    type="number"
-                                    className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                    value={ind.postIA.cost || 0}
-                                    onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
-                                  />
-                                  {ind.baseline.cost && ind.postIA.cost && (
-                                    <p className="text-[10px] font-black text-green-500 mt-2">
-                                      Economia: R$ {(ind.baseline.cost - ind.postIA.cost).toLocaleString()}/mês
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* OTHER Post-IA */}
-                            {ind.improvement_type === ImprovementType.OTHER && (
-                              <div className="space-y-4">
-                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
-                                  <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor Mensal com IA (R$)</label>
-                                  <input
-                                    type="number"
-                                    className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                    value={ind.postIA.value || 0}
-                                    onChange={(e) => updateIndicatorData(idx, 'postIA', 'value', parseFloat(e.target.value) || 0)}
-                                  />
-                                  {ind.baseline.value && ind.postIA.value && (
-                                    <p className="text-[10px] font-black text-green-500 mt-2">
-                                      Ganho: R$ {(ind.postIA.value - ind.baseline.value).toLocaleString()}/mês
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <div className="bg-slate-950 p-6 flex justify-between items-center text-white">
@@ -1297,47 +1457,190 @@ const ProjectDetail: React.FC = () => {
                 </div>
               </>
             ) : (
-              <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                <h3 className="text-xl font-bold mb-8">Informações Estruturais</h3>
-                {/* Formulário de detalhes originais mantido aqui */}
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Nome do Projeto</label>
-                    <input
-                      className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={project.name || ''}
-                      onChange={async (e) => {
-                        const newName = e.target.value;
-                        setProject({ ...project, name: newName });
-                        await saveProject({ name: newName });
-                      }}
-                    />
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-8">
+                <h3 className="text-xl font-bold">Informações Estruturais</h3>
+
+                {/* Informações Gerais */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-black uppercase text-indigo-500 tracking-widest border-b border-slate-50 dark:border-slate-800 pb-2">Informações Gerais</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Nome do Projeto</label>
+                      <input
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={project.name || ''}
+                        onChange={async (e) => {
+                          const newName = e.target.value;
+                          setProject({ ...project, name: newName });
+                          await saveProject({ name: newName });
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Patrocinador (Sponsor)</label>
+                      <input
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={project.sponsor || ''}
+                        onChange={async (e) => {
+                          const newSponsor = e.target.value;
+                          setProject({ ...project, sponsor: newSponsor });
+                          await saveProject({ sponsor: newSponsor });
+                        }}
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Patrocinador (Sponsor)</label>
-                    <input
-                      className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={project.sponsor || ''}
+                    <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Descrição da Iniciativa</label>
+                    <textarea
+                      className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all h-32"
+                      value={project.description || ''}
                       onChange={async (e) => {
-                        const newSponsor = e.target.value;
-                        setProject({ ...project, sponsor: newSponsor });
-                        await saveProject({ sponsor: newSponsor });
+                        const newDescription = e.target.value;
+                        setProject({ ...project, description: newDescription });
+                        await saveProject({ description: newDescription });
                       }}
+                      placeholder="Descreva brevemente o objetivo do projeto e o problema que ele resolve..."
                     />
                   </div>
                 </div>
-                <div className="mt-8 space-y-2">
-                  <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Descrição da Iniciativa</label>
-                  <textarea
-                    className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all h-32"
-                    value={project.description || ''}
-                    onChange={async (e) => {
-                      const newDescription = e.target.value;
-                      setProject({ ...project, description: newDescription });
-                      await saveProject({ description: newDescription });
-                    }}
-                    placeholder="Descreva brevemente o objetivo do projeto e o problema que ele resolve..."
-                  />
+
+                {/* Categorização */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-black uppercase text-indigo-500 tracking-widest border-b border-slate-50 dark:border-slate-800 pb-2">Categorização</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Área de Negócio</label>
+                      <input
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={project.business_area || ''}
+                        onChange={async (e) => {
+                          const newBusinessArea = e.target.value;
+                          setProject({ ...project, business_area: newBusinessArea });
+                          await saveProject({ business_area: newBusinessArea });
+                        }}
+                        placeholder="Ex: CX, Jurídico, RH..."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Tipo de Desenvolvimento</label>
+                      <select
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                        value={project.development_type}
+                        onChange={async (e) => {
+                          const newDevelopmentType = e.target.value as DevelopmentType;
+                          setProject({ ...project, development_type: newDevelopmentType });
+                          await saveProject({ development_type: newDevelopmentType });
+                        }}
+                      >
+                        {Object.entries(DEVELOPMENT_LABELS).map(([key, label]) => (
+                          <option key={key} value={key}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Status</label>
+                      <select
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                        value={project.status}
+                        onChange={async (e) => {
+                          const newStatus = e.target.value as ProjectStatus;
+                          setProject({ ...project, status: newStatus });
+                          await saveProject({ status: newStatus });
+                        }}
+                      >
+                        <option value={ProjectStatus.PLANNING}>Planejamento</option>
+                        <option value={ProjectStatus.DEVELOPMENT}>Desenvolvimento</option>
+                        <option value={ProjectStatus.TESTING}>Testes</option>
+                        <option value={ProjectStatus.PRODUCTION}>Produção</option>
+                        <option value={ProjectStatus.ON_HOLD}>Em Espera</option>
+                        <option value={ProjectStatus.COMPLETED}>Concluído</option>
+                        <option value={ProjectStatus.CANCELLED}>Cancelado</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Datas */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-black uppercase text-indigo-500 tracking-widest border-b border-slate-50 dark:border-slate-800 pb-2">Datas</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Data de Início</label>
+                      <input
+                        type="date"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={project.start_date ? project.start_date.split('T')[0] : ''}
+                        onChange={async (e) => {
+                          const newStartDate = e.target.value;
+                          setProject({ ...project, start_date: newStartDate });
+                          await saveProject({ start_date: newStartDate });
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Data de Go Live</label>
+                      <input
+                        type="date"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={project.go_live_date ? project.go_live_date.split('T')[0] : ''}
+                        onChange={async (e) => {
+                          const newGoLiveDate = e.target.value || undefined;
+                          setProject({ ...project, go_live_date: newGoLiveDate });
+                          await saveProject({ go_live_date: newGoLiveDate });
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Data de Fim</label>
+                      <input
+                        type="date"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={project.end_date ? project.end_date.split('T')[0] : ''}
+                        onChange={async (e) => {
+                          const newEndDate = e.target.value || undefined;
+                          setProject({ ...project, end_date: newEndDate });
+                          await saveProject({ end_date: newEndDate });
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Financeiro */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-black uppercase text-indigo-500 tracking-widest border-b border-slate-50 dark:border-slate-800 pb-2">Financeiro Estimado</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">CAPEX (Investimento Inicial R$)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={project.implementation_cost || ''}
+                        onChange={async (e) => {
+                          const newCost = parseFloat(e.target.value) || 0;
+                          setProject({ ...project, implementation_cost: newCost });
+                          await saveProject({ implementation_cost: newCost });
+                        }}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">OPEX (Manutenção Mensal R$)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={project.monthly_maintenance_cost || ''}
+                        onChange={async (e) => {
+                          const newCost = parseFloat(e.target.value) || 0;
+                          setProject({ ...project, monthly_maintenance_cost: newCost });
+                          await saveProject({ monthly_maintenance_cost: newCost });
+                        }}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

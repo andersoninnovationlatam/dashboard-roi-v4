@@ -110,6 +110,18 @@ export const calculateIndicatorStats = (ind: Indicator) => {
       improvementPct = (ind.postIA.score && ind.baseline.score) ? (((ind.postIA.score - ind.baseline.score) / ind.baseline.score) * 100).toFixed(1) : "0";
       break;
 
+    case ImprovementType.RELATED_COSTS:
+      // Calcular custo anual baseado em tools com frequência
+      const relatedCostsAnnual = (ind.baseline.tools || []).reduce((acc, tool) => {
+        const freqQty = (tool as any).frequencyQuantity || 1;
+        const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
+        const multiplier = getFrequencyMultiplierAnnual(freqUnit);
+        return acc + (tool.monthlyCost * freqQty * multiplier);
+      }, 0);
+      monthlyEconomy = relatedCostsAnnual / 12; // Converter anual para mensal
+      improvementPct = relatedCostsAnnual > 0 ? "100" : "0";
+      break;
+
     default:
       monthlyEconomy = (ind.postIA.value || 0) - (ind.baseline.value || 0);
       improvementPct = ind.baseline.value ? (((ind.postIA.value || 0) / (ind.baseline.value || 1) - 1) * 100).toFixed(1) : "0";
@@ -141,13 +153,26 @@ const getFrequencyMultiplier = (unit: FrequencyUnit): number => {
   }
 };
 
-// Função auxiliar para converter frequência para anual
+// Função auxiliar para obter multiplicador de frequência (lê do localStorage se disponível)
 const getFrequencyMultiplierAnnual = (unit: FrequencyUnit): number => {
+  try {
+    const stored = localStorage.getItem('frequencyMultipliers');
+    if (stored) {
+      const multipliers = JSON.parse(stored);
+      if (multipliers[unit] !== undefined) {
+        return multipliers[unit];
+      }
+    }
+  } catch (e) {
+    // Se houver erro ao ler localStorage, usar valores padrão
+  }
+
+  // Valores padrão
   switch (unit) {
     case FrequencyUnit.HOUR:
-      return 24 * 365; // Aproximação
+      return 2080;
     case FrequencyUnit.DAY:
-      return 365;
+      return 260;
     case FrequencyUnit.WEEK:
       return 52;
     case FrequencyUnit.MONTH:
