@@ -1,5 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { authService } from '../services/authService';
 
 interface SettingsProps {
   theme: 'dark' | 'light';
@@ -9,24 +10,170 @@ interface SettingsProps {
 const DEFAULT_PROMPT = "Analise os dados de ROI de projetos de IA desta organização:\n- ROI Total: {roi_total}%\n- Economia Anual: R$ {economia_anual}\n- Horas economizadas: {horas_economizadas_ano}h\n- Projetos em produção: {projetos_producao}\n- Payback médio: {payback_medio} meses\n\nForneça um insight estratégico curto (3 frases) em Português sobre o desempenho e onde focar.";
 
 const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
+  const { profile, updateProfile, user } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [profileData, setProfileData] = useState({
+    full_name: '',
+    phone: '',
+    position: '',
+    department: '',
+  });
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     const savedPrompt = localStorage.getItem('ai_insight_prompt') || DEFAULT_PROMPT;
     setPrompt(savedPrompt);
-  }, []);
+    
+    if (profile) {
+      setProfileData({
+        full_name: profile.full_name || '',
+        phone: profile.phone || '',
+        position: profile.position || '',
+        department: profile.department || '',
+      });
+    }
+  }, [profile]);
 
   const handleSavePrompt = () => {
     localStorage.setItem('ai_insight_prompt', prompt);
     setIsModalOpen(false);
+    setMessage({ type: 'success', text: 'Prompt salvo com sucesso!' });
+    setTimeout(() => setMessage(null), 3000);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      await updateProfile(profileData);
+      setIsProfileModalOpen(false);
+      setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Erro ao atualizar perfil' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setMessage({ type: 'error', text: 'As senhas não coincidem' });
+      return;
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      setMessage({ type: 'error', text: 'A senha deve ter pelo menos 6 caracteres' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await authService.updatePassword(passwordData.newPassword);
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setMessage({ type: 'success', text: 'Senha atualizada com sucesso!' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Erro ao atualizar senha' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="space-y-8">
+      {message && (
+        <div className={`p-4 rounded-xl border ${
+          message.type === 'success' 
+            ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-800' 
+            : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800'
+        }`}>
+          {message.text}
+        </div>
+      )}
+
       <div>
         <h2 className="text-2xl font-bold">Configurações</h2>
-        <p className="text-slate-500 dark:text-slate-400">Gerencie as preferências da plataforma e motor de IA</p>
+        <p className="text-slate-500 dark:text-slate-400">Gerencie as preferências da plataforma e seu perfil</p>
+      </div>
+
+      {/* Perfil do Usuário */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-8 shadow-sm">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-bold">Meu Perfil</h3>
+          <button 
+            onClick={() => setIsProfileModalOpen(true)}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all"
+          >
+            Editar Perfil
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+            <p className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">E-mail</p>
+            <p className="font-bold">{user?.email || 'N/A'}</p>
+          </div>
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+            <p className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">Nome Completo</p>
+            <p className="font-bold">{profile?.full_name || 'Não informado'}</p>
+          </div>
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+            <p className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">Cargo</p>
+            <p className="font-bold">{profile?.position || 'Não informado'}</p>
+          </div>
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+            <p className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">Departamento</p>
+            <p className="font-bold">{profile?.department || 'Não informado'}</p>
+          </div>
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+            <p className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">Telefone</p>
+            <p className="font-bold">{profile?.phone || 'Não informado'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Alterar Senha */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-8 shadow-sm">
+        <h3 className="text-lg font-bold mb-6">Segurança</h3>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Nova Senha</label>
+            <input 
+              type="password"
+              value={passwordData.newPassword}
+              onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="Nova senha"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Confirmar Nova Senha</label>
+            <input 
+              type="password"
+              value={passwordData.confirmPassword}
+              onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="Confirmar nova senha"
+            />
+          </div>
+          <button 
+            onClick={handleUpdatePassword}
+            disabled={loading}
+            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all disabled:opacity-50"
+          >
+            {loading ? 'Atualizando...' : 'Atualizar Senha'}
+          </button>
+        </div>
       </div>
 
       {/* Tema e Aparência */}
@@ -75,6 +222,64 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
           </button>
         </div>
       </div>
+
+      {/* Modal para Editar Perfil */}
+      {isProfileModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-6">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+              <h3 className="text-xl font-black">Editar Perfil</h3>
+              <button onClick={() => setIsProfileModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-8 space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Nome Completo</label>
+                <input 
+                  type="text"
+                  value={profileData.full_name}
+                  onChange={(e) => setProfileData({ ...profileData, full_name: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Telefone</label>
+                <input 
+                  type="tel"
+                  value={profileData.phone}
+                  onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Cargo</label>
+                <input 
+                  type="text"
+                  value={profileData.position}
+                  onChange={(e) => setProfileData({ ...profileData, position: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Departamento</label>
+                <input 
+                  type="text"
+                  value={profileData.department}
+                  onChange={(e) => setProfileData({ ...profileData, department: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3">
+              <button onClick={() => setIsProfileModalOpen(false)} className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700">Cancelar</button>
+              <button onClick={handleSaveProfile} disabled={loading} className="px-8 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all disabled:opacity-50">
+                {loading ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal para Prompt */}
       {isModalOpen && (

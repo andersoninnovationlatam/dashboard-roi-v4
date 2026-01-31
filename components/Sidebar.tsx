@@ -1,12 +1,16 @@
 
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
-interface SidebarProps {
-  onLogout: () => void;
-}
+const Sidebar: React.FC = () => {
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
 
-const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/login');
+  };
   return (
     <div className="w-64 bg-slate-900 h-screen fixed left-0 top-0 text-white flex flex-col z-50 shadow-2xl">
       <div className="p-6 border-b border-slate-800 flex items-center gap-3">
@@ -53,7 +57,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         </NavLink>
 
         <button 
-          onClick={onLogout}
+          onClick={handleLogout}
           className="w-full flex items-center gap-3 p-3.5 rounded-xl text-sm font-bold text-red-400 hover:bg-red-500/10 hover:text-red-500 transition-all"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
