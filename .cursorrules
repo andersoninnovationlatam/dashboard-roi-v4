@@ -1,0 +1,47 @@
+# ROI Analytics Pro - Project Guidelines
+
+Você é um engenheiro sênior atuando nesta plataforma de gestão de ROI para projetos de IA. Siga estas diretrizes ao realizar alterações ou criar novas funcionalidades.
+
+## 1. Visão Geral do Projeto
+A plataforma é um dashboard executivo e técnico para mensurar o retorno sobre investimento (ROI) de iniciativas de IA. O foco é transformar métricas de produtividade e eficiência em valores financeiros.
+
+## 2. Estrutura de "Dados" (State Management)
+Atualmente, o projeto não utiliza um backend real. Os dados são estruturados da seguinte forma:
+- **Types (Fonte de Verdade):** Localizados em `types.ts`. Qualquer nova métrica deve ser adicionada aqui primeiro.
+- **Mock Data:** Localizado em `services/mockData.ts`. Este arquivo simula o banco de dados. Para persistência real, usamos o `localStorage` (ex: configurações de tema, login e prompts de IA).
+- **Relacionamentos:** 
+  - Um `Project` possui vários `Indicator`.
+  - Um `Indicator` compara um `baseline` (como era antes da IA) com um `postIA` (como ficou depois).
+
+## 3. Lógica de Cálculo de ROI (Core Business Logic)
+O cálculo principal reside em `pages/ProjectDetail.tsx`. A regra de ouro é:
+- **Economia Mensal:** (Custo do Baseline) - (Custo Pós-IA).
+- **Custos:** Envolvem `people` (horas spent * hourly rate * frequency) + `tools` (mensalidades de softwares).
+- **Tipos de Melhoria:** O cálculo varia se for `Productivity` (tempo/pessoa), `Revenue Increase` (ganho direto), `Risk Reduction` (probabilidade * impacto) ou `Satisfaction` (churn/NPS).
+
+## 4. Integração com IA (Gemini API)
+Usamos o SDK `@google/genai` com o modelo `gemini-3-flash-preview`.
+- **Global Insights:** No `ExecutiveDashboard`, a IA lê o portfólio completo usando um prompt customizável salvo no `localStorage`.
+- **Project Insights:** No `ProjectDetail`, a IA analisa as métricas específicas daquele projeto.
+- **Configuração:** O prompt mestre é editável em `pages/Settings.tsx` e suporta tags como `{roi_total}` e `{economia_anual}`.
+
+## 5. Padrões de UI/UX (Aesthetics)
+- **Framework:** Tailwind CSS.
+- **Temas:** Suporte nativo a Dark Mode (classe `.dark` no `html`).
+- **Tipografia:** Inter (font-sans). Uso pesado de `font-black`, `uppercase` e `tracking-widest` para labels de KPIs.
+- **Cores:** Indigo (`#6366f1`) para acentos e ações principais. Slate para backgrounds. Verde para ROIs positivos.
+- **Componentes:**
+  - `KPICard`: Usado para métricas de topo.
+  - `Charts`: Recharts (AreaChart para histórico, PieChart para distribuição).
+- **Impressão:** O layout de `Reports.tsx` possui classes `no-print` e estilos `@media print` no `index.html` para gerar PDFs perfeitos via `window.print()`.
+
+## 6. Regras de Desenvolvimento
+- **Arquitetura:** Componentes em `components/`, páginas em `pages/`. Não crie subpastas `src/`.
+- **Imports:** Sempre use o `import { GoogleGenAI } from "@google/genai"` conforme as diretrizes da Google.
+- **Atualizações:** Mantenha as atualizações de código mínimas e precisas. Se for atualizar um arquivo, retorne o XML completo.
+- **Funcionalidade Offline:** A aplicação deve funcionar inteiramente no browser, simulando o comportamento de um sistema real.
+
+## 7. Fluxo de Inputs e Persistência
+1. **Inputs:** Coletados via formulários em `ProjectCreate` e modais/campos em `ProjectDetail`.
+2. **Processamento:** Os cálculos de ROI são feitos em tempo real via funções auxiliares (ex: `calculateIndicatorStats`).
+3. **Persistência Simulada:** No momento, as alterações em indicadores nos detalhes do projeto são mantidas no estado do componente (`useState`). Para persistir entre sessões, deve-se implementar a escrita no `localStorage` ou atualizar o `mockData`.
