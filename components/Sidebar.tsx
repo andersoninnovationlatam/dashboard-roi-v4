@@ -48,7 +48,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             </svg>
           </button>
 
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-500/20 transition-transform hover:scale-105 cursor-pointer flex-shrink-0"><img src="/images/InnovationLatam300-removebg-preview.png" alt="Innovation Latam" className="w-full h-full object-contain" /></div>
+          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-500/20 transition-transform hover:scale-105 cursor-pointer flex-shrink-0"><img src="../images/InnovationLatam300-removebg-preview.png" alt="Innovation Latam" className="w-full h-full object-contain" /></div>
           {isOpen && (
             <div className="overflow-hidden">
               <h1 className="font-black text-lg leading-tight tracking-tight whitespace-nowrap">ROI Analytics</h1>
