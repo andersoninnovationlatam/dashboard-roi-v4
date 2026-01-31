@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import ReactMarkdown from 'react-markdown';
 import KPICard from '../components/KPICard';
 import { dashboardService, EconomyHistoryItem, DistributionItem } from '../services/dashboardService';
 import { KPIStats } from '../types';
@@ -96,7 +97,7 @@ const ExecutiveDashboard: React.FC = () => {
         </div>
         <button
           onClick={generateAIInsight}
-          disabled={loadingAi || stats.projetos_producao === 0}
+          disabled={loadingAi}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50 shadow-lg shadow-indigo-500/20"
         >
           {loadingAi ? (
@@ -113,9 +114,19 @@ const ExecutiveDashboard: React.FC = () => {
           <div className="bg-indigo-600 p-2.5 rounded-xl h-fit text-white shadow-lg">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
           </div>
-          <div>
+          <div className="flex-1">
             <h4 className="font-black text-indigo-900 dark:text-indigo-100 text-xs uppercase tracking-widest mb-1">Análise de Portfólio IA</h4>
-            <p className="text-indigo-800 dark:text-indigo-200 text-sm leading-relaxed font-medium">{aiInsight}</p>
+            <div className="text-indigo-800 dark:text-indigo-200 text-sm leading-relaxed font-medium prose prose-indigo dark:prose-invert max-w-none">
+              <ReactMarkdown
+                components={{
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  strong: ({ children }) => <strong className="font-bold text-indigo-900 dark:text-indigo-100">{children}</strong>,
+                  em: ({ children }) => <em className="italic">{children}</em>,
+                }}
+              >
+                {aiInsight}
+              </ReactMarkdown>
+            </div>
           </div>
           <button onClick={() => setAiInsight(null)} className="ml-auto text-indigo-400 hover:text-indigo-600">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
