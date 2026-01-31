@@ -4,10 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { projectService } from '../services/projectService';
 import { ProjectStatus, DevelopmentType } from '../types';
 import { DEVELOPMENT_LABELS } from '../constants';
+import ToastContainer from '../components/ToastContainer';
+import { useToast } from '../hooks/useToast';
 
 const ProjectCreate: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const { toasts, showToast, removeToast } = useToast();
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -31,15 +34,18 @@ const ProjectCreate: React.FC = () => {
       });
       
       navigate(`/projects/${newProject.id}`);
+      showToast('Projeto criado com sucesso!', 'success');
     } catch (error) {
       console.error('Erro ao criar projeto:', error);
-      alert('Erro ao criar projeto. Tente novamente.');
+      showToast('Erro ao criar projeto. Tente novamente.', 'error');
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
         <button 
           onClick={() => navigate('/projects')} 
@@ -180,6 +186,7 @@ const ProjectCreate: React.FC = () => {
         </div>
       </form>
     </div>
+    </>
   );
 };
 
