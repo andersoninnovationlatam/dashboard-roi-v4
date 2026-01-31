@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 import { projectService, indicatorService } from '../services/projectService';
 import { Project, Indicator, ProjectStatus, ImprovementType, FrequencyUnit, PersonInvolved, IndicatorData, ToolCost } from '../types';
 import { DEVELOPMENT_LABELS, STATUS_COLORS, IMPROVEMENT_LABELS } from '../constants';
 import { GoogleGenAI } from "@google/genai";
+import { aiPromptService } from '../services/aiPromptService';
 
 const ProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -173,19 +175,50 @@ const ProjectDetail: React.FC = () => {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const annualImpact = indicators.reduce((acc, ind) => acc + calculateIndicatorStats(ind).annualEconomy, 0);
 
-      const prompt = `Analise o projeto de IA específico:
-      - Nome: ${project.name}
-      - Tipo: ${DEVELOPMENT_LABELS[project.development_type]}
-      - Status: ${project.status}
-      - Economia Anual Estimada: R$ ${annualImpact.toLocaleString()}
-      - ROI do Projeto: ${project.roi_percentage}%
-      - Sponsor: ${project.sponsor}
+      // Busca o prompt do banco de dados primeiro, se não existir usa o padrão
+      let promptTemplate = await aiPromptService.getPrompt();
+
+      // Prompt padrão específico para projeto (caso o prompt do banco seja muito genérico)
+      const defaultProjectPrompt = `Analise o projeto de IA específico:
+      - Nome: {nome_projeto}
+      - Tipo: {tipo_projeto}
+      - Status: {status_projeto}
+      - Economia Anual Estimada: R$ {economia_anual_projeto}
+      - ROI do Projeto: {roi_projeto}%
+      - Sponsor: {sponsor_projeto}
       
       Gere um insight executivo curto e direto em Português sobre o valor deste projeto específico para o negócio.`;
 
+      // Se o prompt do banco for o padrão do dashboard, usa o prompt específico de projeto
+      // Caso contrário, adapta o prompt do banco para incluir informações do projeto
+      let finalPrompt: string;
+
+      if (promptTemplate.includes('{roi_total}') || promptTemplate.includes('{economia_anual}')) {
+        // É o prompt padrão do dashboard, usa o prompt específico de projeto
+        finalPrompt = defaultProjectPrompt;
+      } else {
+        // É um prompt customizado, adapta para o contexto do projeto
+        finalPrompt = promptTemplate + `\n\nContexto do projeto específico:
+      - Nome: {nome_projeto}
+      - Tipo: {tipo_projeto}
+      - Status: {status_projeto}
+      - Economia Anual Estimada: R$ {economia_anual_projeto}
+      - ROI do Projeto: {roi_projeto}%
+      - Sponsor: {sponsor_projeto}`;
+      }
+
+      // Substitui as variáveis do projeto
+      finalPrompt = finalPrompt
+        .replace('{nome_projeto}', project.name || 'Não informado')
+        .replace('{tipo_projeto}', DEVELOPMENT_LABELS[project.development_type] || 'Não informado')
+        .replace('{status_projeto}', project.status || 'Não informado')
+        .replace('{economia_anual_projeto}', annualImpact.toLocaleString())
+        .replace('{roi_projeto}', (project.roi_percentage || 0).toString())
+        .replace('{sponsor_projeto}', project.sponsor || 'Não informado');
+
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: prompt,
+        contents: finalPrompt,
       });
 
       setAiInsight(response.text || "Insight não disponível.");
@@ -323,9 +356,19 @@ const ProjectDetail: React.FC = () => {
           <div className="bg-indigo-600 p-2.5 rounded-xl h-fit text-white shadow-lg">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
           </div>
-          <div>
+          <div className="flex-1">
             <h4 className="font-black text-indigo-900 dark:text-indigo-100 text-xs uppercase tracking-widest mb-1">Análise Estratégica IA</h4>
-            <p className="text-indigo-800 dark:text-indigo-200 text-sm leading-relaxed font-medium">{aiInsight}</p>
+            <div className="text-indigo-800 dark:text-indigo-200 text-sm leading-relaxed font-medium prose prose-indigo dark:prose-invert max-w-none">
+              <ReactMarkdown
+                components={{
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  strong: ({ children }) => <strong className="font-bold text-indigo-900 dark:text-indigo-100">{children}</strong>,
+                  em: ({ children }) => <em className="italic">{children}</em>,
+                }}
+              >
+                {aiInsight}
+              </ReactMarkdown>
+            </div>
           </div>
           <button onClick={() => setAiInsight(null)} className="ml-auto text-indigo-400 hover:text-indigo-600 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
