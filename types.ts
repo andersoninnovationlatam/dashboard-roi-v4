@@ -129,4 +129,13 @@ export interface KPIStats {
   projetos_producao: number;
   projetos_concluidos: number;
   payback_medio: number;
+  horas_baseline_ano: number;
+  horas_posia_ano: number;
+  custo_mo_baseline: number;
+  custo_mo_posia: number;
+  economia_mo: number;
+  custo_ia_anual: number;
+  economia_liquida: number;
+  roi_calculado: number;
+  payback_calculado: number;
 }

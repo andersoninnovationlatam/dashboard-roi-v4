@@ -7,7 +7,16 @@ export const mockStats: KPIStats = {
   horas_economizadas_ano: 15680,
   projetos_producao: 8,
   projetos_concluidos: 3,
-  payback_medio: 4.2
+  payback_medio: 4.2,
+  horas_baseline_ano: 0,
+  horas_posia_ano: 0,
+  custo_mo_baseline: 0,
+  custo_mo_posia: 0,
+  economia_mo: 0,
+  custo_ia_anual: 0,
+  economia_liquida: 0,
+  roi_calculado: 0,
+  payback_calculado: 0,
 };
 
 export const mockIndicators: Record<string, Indicator[]> = {

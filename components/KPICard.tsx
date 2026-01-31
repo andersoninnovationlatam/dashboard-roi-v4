@@ -22,7 +22,7 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, icon, color, trend }) =
         </div>
       </div>
       <div className="flex items-baseline gap-2">
-        <span className="text-2xl font-black text-slate-900 dark:text-white">{value}</span>
+        <span className="text-lg font-black text-slate-900 dark:text-white">{value}</span>
       </div>
       {trend && (
         <div className={`text-xs flex items-center gap-1 font-bold ${trend.isUp ? 'text-green-500' : 'text-red-500'}`}>

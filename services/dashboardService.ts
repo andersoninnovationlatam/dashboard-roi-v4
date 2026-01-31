@@ -38,7 +38,7 @@ export const calculateIndicatorStats = (ind: Indicator) => {
   let postIACost = 0;
   let improvementPct = "0";
 
-  const calcPeopleCost = (people?: PersonInvolved[]) => 
+  const calcPeopleCost = (people?: PersonInvolved[]) =>
     (people || []).reduce((acc, p) => {
       // Converter frequência para mensal
       let monthlyFrequency = p.frequencyQuantity;
@@ -64,8 +64,8 @@ export const calculateIndicatorStats = (ind: Indicator) => {
       }
       return acc + (p.hourlyRate * (p.minutesSpent / 60) * monthlyFrequency);
     }, 0);
-  
-  const calcToolsCost = (tools?: ToolCost[]) => 
+
+  const calcToolsCost = (tools?: ToolCost[]) =>
     (tools || []).reduce((acc, t) => acc + (t.monthlyCost + (t.otherCosts || 0)), 0);
 
   switch (ind.improvement_type) {
@@ -74,16 +74,16 @@ export const calculateIndicatorStats = (ind: Indicator) => {
     case ImprovementType.DECISION_QUALITY:
       baselineCost = calcPeopleCost(ind.baseline.people) + calcToolsCost(ind.baseline.tools) + (ind.baseline.cost || 0);
       postIACost = calcPeopleCost(ind.postIA.people) + calcToolsCost(ind.postIA.tools) + (ind.postIA.cost || 0);
-      
+
       if (ind.improvement_type === ImprovementType.DECISION_QUALITY) {
-         baselineCost += (ind.baseline.decisionCount || 0) * (1 - (ind.baseline.accuracyPct || 0)/100) * (ind.baseline.errorCost || 0);
-         postIACost += (ind.postIA.decisionCount || 0) * (1 - (ind.postIA.accuracyPct || 0)/100) * (ind.postIA.errorCost || 0);
+        baselineCost += (ind.baseline.decisionCount || 0) * (1 - (ind.baseline.accuracyPct || 0) / 100) * (ind.baseline.errorCost || 0);
+        postIACost += (ind.postIA.decisionCount || 0) * (1 - (ind.postIA.accuracyPct || 0) / 100) * (ind.postIA.errorCost || 0);
       }
 
       monthlyEconomy = baselineCost - postIACost;
       improvementPct = baselineCost > 0 ? ((baselineCost - postIACost) / baselineCost * 100).toFixed(1) : "0";
       break;
-    
+
     case ImprovementType.REVENUE_INCREASE:
       monthlyEconomy = (ind.postIA.revenue || 0) - (ind.baseline.revenue || 0);
       improvementPct = ind.baseline.revenue ? (((ind.postIA.revenue || 0) / (ind.baseline.revenue || 1) - 1) * 100).toFixed(1) : "100";
@@ -97,15 +97,15 @@ export const calculateIndicatorStats = (ind: Indicator) => {
       break;
 
     case ImprovementType.RISK_REDUCTION:
-      const riskBefore = (ind.baseline.probability || 0)/100 * (ind.baseline.impact || 0);
-      const riskAfter = (ind.postIA.probability || 0)/100 * (ind.postIA.impact || 0);
+      const riskBefore = (ind.baseline.probability || 0) / 100 * (ind.baseline.impact || 0);
+      const riskAfter = (ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0);
       monthlyEconomy = (riskBefore - riskAfter) + ((ind.baseline.mitigationCost || 0) - (ind.postIA.mitigationCost || 0));
       improvementPct = riskBefore > 0 ? (((riskBefore - riskAfter) / riskBefore) * 100).toFixed(1) : "0";
       break;
 
     case ImprovementType.SATISFACTION:
-      const churnBeforeVal = (ind.baseline.churnRate || 0)/100 * (ind.baseline.clientCount || 0) * (ind.baseline.valuePerClient || 0);
-      const churnAfterVal = (ind.postIA.churnRate || 0)/100 * (ind.postIA.clientCount || 0) * (ind.postIA.valuePerClient || 0);
+      const churnBeforeVal = (ind.baseline.churnRate || 0) / 100 * (ind.baseline.clientCount || 0) * (ind.baseline.valuePerClient || 0);
+      const churnAfterVal = (ind.postIA.churnRate || 0) / 100 * (ind.postIA.clientCount || 0) * (ind.postIA.valuePerClient || 0);
       monthlyEconomy = (churnBeforeVal - churnAfterVal) + ((ind.postIA.revenue || 0) - (ind.baseline.revenue || 0));
       improvementPct = (ind.postIA.score && ind.baseline.score) ? (((ind.postIA.score - ind.baseline.score) / ind.baseline.score) * 100).toFixed(1) : "0";
       break;
@@ -120,43 +120,6 @@ export const calculateIndicatorStats = (ind: Indicator) => {
     annualEconomy: monthlyEconomy * 12,
     improvementPct
   };
-};
-
-// Calcular horas economizadas anuais
-export const calculateHoursSaved = (indicators: Indicator[]): number => {
-  let totalHours = 0;
-
-  indicators.forEach(ind => {
-    // Apenas para tipos PRODUCTIVITY e SPEED
-    if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED) {
-      const baselinePeople = ind.baseline.people || [];
-      const postIAPeople = ind.postIA.people || [];
-
-      baselinePeople.forEach((baselinePerson, idx) => {
-        const postIAPerson = postIAPeople[idx];
-        if (postIAPerson) {
-          // Calcular horas mensais economizadas
-          let baselineMonthlyHours = (baselinePerson.minutesSpent / 60) * baselinePerson.frequencyQuantity;
-          let postIAMonthlyHours = (postIAPerson.minutesSpent / 60) * postIAPerson.frequencyQuantity;
-
-          // Converter frequência para mensal se necessário
-          if (baselinePerson.frequencyUnit !== FrequencyUnit.MONTH) {
-            const multiplier = getFrequencyMultiplier(baselinePerson.frequencyUnit);
-            baselineMonthlyHours = (baselinePerson.minutesSpent / 60) * baselinePerson.frequencyQuantity * multiplier;
-          }
-          if (postIAPerson.frequencyUnit !== FrequencyUnit.MONTH) {
-            const multiplier = getFrequencyMultiplier(postIAPerson.frequencyUnit);
-            postIAMonthlyHours = (postIAPerson.minutesSpent / 60) * postIAPerson.frequencyQuantity * multiplier;
-          }
-
-          const hoursSavedMonthly = baselineMonthlyHours - postIAMonthlyHours;
-          totalHours += hoursSavedMonthly * 12; // Anual
-        }
-      });
-    }
-  });
-
-  return Math.round(totalHours);
 };
 
 // Função auxiliar para converter frequência para mensal
@@ -176,6 +139,137 @@ const getFrequencyMultiplier = (unit: FrequencyUnit): number => {
     default:
       return 1;
   }
+};
+
+// Função auxiliar para converter frequência para anual
+const getFrequencyMultiplierAnnual = (unit: FrequencyUnit): number => {
+  switch (unit) {
+    case FrequencyUnit.HOUR:
+      return 24 * 365; // Aproximação
+    case FrequencyUnit.DAY:
+      return 365;
+    case FrequencyUnit.WEEK:
+      return 52;
+    case FrequencyUnit.MONTH:
+      return 12;
+    case FrequencyUnit.QUARTER:
+      return 4;
+    case FrequencyUnit.YEAR:
+      return 1;
+    default:
+      return 1;
+  }
+};
+
+// Calcular frequência anual (não exibido, apenas para cálculos)
+const calculateAnnualFrequency = (frequencyQuantity: number, frequencyUnit: FrequencyUnit): number => {
+  return frequencyQuantity * getFrequencyMultiplierAnnual(frequencyUnit);
+};
+
+// Calcular horas baseline anuais
+const calculateBaselineHoursAnnual = (indicators: Indicator[]): number => {
+  let totalHours = 0;
+
+  indicators.forEach(ind => {
+    if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) {
+      (ind.baseline.people || []).forEach(person => {
+        const freqAnual = calculateAnnualFrequency(person.frequencyQuantity, person.frequencyUnit);
+        const horasPorExecucao = person.minutesSpent / 60;
+        totalHours += horasPorExecucao * freqAnual;
+      });
+    }
+  });
+
+  return Math.round(totalHours);
+};
+
+// Calcular horas pós-IA anuais
+const calculatePostIAHoursAnnual = (indicators: Indicator[]): number => {
+  let totalHours = 0;
+
+  indicators.forEach(ind => {
+    if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) {
+      (ind.postIA.people || []).forEach(person => {
+        const freqAnual = calculateAnnualFrequency(person.frequencyQuantity, person.frequencyUnit);
+        const horasPorExecucao = person.minutesSpent / 60;
+        totalHours += horasPorExecucao * freqAnual;
+      });
+    }
+  });
+
+  return Math.round(totalHours);
+};
+
+// Calcular custo de mão de obra baseline anual
+const calculateBaselineMOCost = (indicators: Indicator[]): number => {
+  let totalCost = 0;
+
+  indicators.forEach(ind => {
+    if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) {
+      (ind.baseline.people || []).forEach(person => {
+        const freqAnual = calculateAnnualFrequency(person.frequencyQuantity, person.frequencyUnit);
+        const horasPorExecucao = person.minutesSpent / 60;
+        const horasAnuais = horasPorExecucao * freqAnual;
+        totalCost += horasAnuais * person.hourlyRate;
+      });
+    }
+  });
+
+  return totalCost;
+};
+
+// Calcular custo de mão de obra pós-IA anual
+const calculatePostIAMOCost = (indicators: Indicator[]): number => {
+  let totalCost = 0;
+
+  indicators.forEach(ind => {
+    if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) {
+      (ind.postIA.people || []).forEach(person => {
+        const freqAnual = calculateAnnualFrequency(person.frequencyQuantity, person.frequencyUnit);
+        const horasPorExecucao = person.minutesSpent / 60;
+        const horasAnuais = horasPorExecucao * freqAnual;
+        totalCost += horasAnuais * person.hourlyRate;
+      });
+    }
+  });
+
+  return totalCost;
+};
+
+// Calcular custo de IA anual (APIs mensais * 12 + custo por execução * frequência anual)
+const calculateIACostAnnual = (projects: Project[], indicators: Indicator[]): number => {
+  let totalCost = 0;
+
+  projects.forEach(project => {
+    // Custo mensal de APIs (monthly_maintenance_cost) * 12
+    totalCost += project.monthly_maintenance_cost * 12;
+
+    // Custo por execução (se houver em tools do postIA)
+    const projectIndicators = indicators.filter(ind => ind.project_id === project.id && ind.is_active);
+    projectIndicators.forEach(ind => {
+      (ind.postIA.tools || []).forEach(tool => {
+        // otherCosts pode representar custo por execução
+        if (tool.otherCosts) {
+          // Assumindo que otherCosts é custo por execução e precisamos multiplicar pela frequência anual
+          // Para simplificar, vamos usar a frequência do primeiro person do postIA
+          const firstPerson = ind.postIA.people?.[0];
+          if (firstPerson) {
+            const freqAnual = calculateAnnualFrequency(firstPerson.frequencyQuantity, firstPerson.frequencyUnit);
+            totalCost += tool.otherCosts * freqAnual;
+          }
+        }
+      });
+    });
+  });
+
+  return totalCost;
+};
+
+// Calcular horas economizadas anuais (Horas_Baseline - Horas_PosIA)
+export const calculateHoursSaved = (indicators: Indicator[]): number => {
+  const horasBaseline = calculateBaselineHoursAnnual(indicators);
+  const horasPosIA = calculatePostIAHoursAnnual(indicators);
+  return Math.round(horasBaseline - horasPosIA);
 };
 
 // Calcular estatísticas KPI
@@ -227,7 +321,7 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
         const stats = calculateIndicatorStats(ind);
         return acc + stats.monthlyEconomy;
       }, 0);
-      
+
       if (monthlyEconomy > 0) {
         return p.implementation_cost / monthlyEconomy;
       }
@@ -235,24 +329,52 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
     })
     .filter((pb): pb is number => pb !== null && pb > 0);
 
-  const paybackMedio = paybacks.length > 0 
-    ? paybacks.reduce((a, b) => a + b, 0) / paybacks.length 
+  const paybackMedio = paybacks.length > 0
+    ? paybacks.reduce((a, b) => a + b, 0) / paybacks.length
     : 0;
+
+  // Calcular novos indicadores
+  const activeIndicators = indicators.filter(ind => ind.is_active);
+  const horasBaselineAno = calculateBaselineHoursAnnual(activeIndicators);
+  const horasPosIAAno = calculatePostIAHoursAnnual(activeIndicators);
+  const custoMOBaseline = calculateBaselineMOCost(activeIndicators);
+  const custoMOPosIA = calculatePostIAMOCost(activeIndicators);
+  const economiaMO = custoMOBaseline - custoMOPosIA;
+  const custoIAAnual = calculateIACostAnnual(projects, activeIndicators);
+  const economiaLiquida = economiaMO - custoIAAnual;
+
+  // Calcular investimento total
+  const investimentoTotal = projects.reduce((sum, p) => sum + p.implementation_cost, 0);
+
+  // ROI calculado = ((Economia_Líquida - Investimento) ÷ Investimento) × 100
+  const roiCalculado = investimentoTotal > 0 ? ((economiaLiquida - investimentoTotal) / investimentoTotal) * 100 : 0;
+
+  // Payback calculado = Investimento ÷ (Economia_Líquida ÷ 12) [em meses]
+  const paybackCalculado = economiaLiquida > 0 ? investimentoTotal / (economiaLiquida / 12) : 0;
 
   return {
     roi_total: Number(roiTotal.toFixed(1)),
-    economia_anual: Math.round(economiaAnual),
+    economia_anual: economiaAnual,
     horas_economizadas_ano: horasEconomizadasAno,
     projetos_producao: productionProjects.length,
     projetos_concluidos: completedProjects.length,
     payback_medio: Number(paybackMedio.toFixed(1)),
+    horas_baseline_ano: horasBaselineAno,
+    horas_posia_ano: horasPosIAAno,
+    custo_mo_baseline: custoMOBaseline,
+    custo_mo_posia: custoMOPosIA,
+    economia_mo: economiaMO,
+    custo_ia_anual: custoIAAnual,
+    economia_liquida: economiaLiquida,
+    roi_calculado: Number(roiCalculado.toFixed(2)),
+    payback_calculado: Number(paybackCalculado.toFixed(1)),
   };
 };
 
 // Calcular histórico mensal de economia
 export const calculateEconomyHistory = (projects: Project[], indicators: Indicator[]): EconomyHistoryItem[] => {
   const productionProjects = projects.filter(p => p.status === ProjectStatus.PRODUCTION);
-  
+
   // Agrupar por mês baseado em go_live_date ou start_date
   const monthlyData: Record<string, { bruta: number; investimento: number }> = {};
 
@@ -300,11 +422,11 @@ export const calculateEconomyHistory = (projects: Project[], indicators: Indicat
   if (history.length === 0) {
     const now = new Date();
     const last6Months: EconomyHistoryItem[] = [];
-    
+
     for (let i = 5; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthLabel = date.toLocaleDateString('pt-BR', { month: 'short' });
-      
+
       // Calcular economia total dos projetos em produção
       const totalEconomy = productionProjects.reduce((sum, p) => {
         const projectIndicators = indicators.filter(ind => ind.project_id === p.id && ind.is_active);
@@ -324,7 +446,7 @@ export const calculateEconomyHistory = (projects: Project[], indicators: Indicat
         liquida: Math.round(totalEconomy - totalInvestment),
       });
     }
-    
+
     return last6Months;
   }
 
