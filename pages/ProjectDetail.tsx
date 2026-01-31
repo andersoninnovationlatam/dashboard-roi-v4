@@ -74,6 +74,124 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
+  // Função auxiliar para converter frequência para anual
+  const getFrequencyMultiplierAnnual = (unit: FrequencyUnit): number => {
+    switch (unit) {
+      case FrequencyUnit.HOUR:
+        return 24 * 365;
+      case FrequencyUnit.DAY:
+        return 365;
+      case FrequencyUnit.WEEK:
+        return 52;
+      case FrequencyUnit.MONTH:
+        return 12;
+      case FrequencyUnit.QUARTER:
+        return 4;
+      case FrequencyUnit.YEAR:
+        return 1;
+      default:
+        return 1;
+    }
+  };
+
+  const calculateAnnualFrequency = (frequencyQuantity: number, frequencyUnit: FrequencyUnit): number => {
+    return frequencyQuantity * getFrequencyMultiplierAnnual(frequencyUnit);
+  };
+
+  // Calcular métricas do projeto
+  const calculateProjectMetrics = () => {
+    const activeIndicators = indicators.filter(ind => ind.is_active);
+
+    // Horas Baseline/Ano
+    let horasBaselineAno = 0;
+    activeIndicators.forEach(ind => {
+      if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) {
+        (ind.baseline.people || []).forEach(person => {
+          const freqAnual = calculateAnnualFrequency(person.frequencyQuantity, person.frequencyUnit);
+          const horasPorExecucao = person.minutesSpent / 60;
+          horasBaselineAno += horasPorExecucao * freqAnual;
+        });
+      }
+    });
+
+    // Horas Pós-IA/Ano
+    let horasPosIAAno = 0;
+    activeIndicators.forEach(ind => {
+      if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) {
+        (ind.postIA.people || []).forEach(person => {
+          const freqAnual = calculateAnnualFrequency(person.frequencyQuantity, person.frequencyUnit);
+          const horasPorExecucao = person.minutesSpent / 60;
+          horasPosIAAno += horasPorExecucao * freqAnual;
+        });
+      }
+    });
+
+    // Custo MO Baseline
+    let custoMOBaseline = 0;
+    activeIndicators.forEach(ind => {
+      if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) {
+        (ind.baseline.people || []).forEach(person => {
+          const freqAnual = calculateAnnualFrequency(person.frequencyQuantity, person.frequencyUnit);
+          const horasPorExecucao = person.minutesSpent / 60;
+          const horasAnuais = horasPorExecucao * freqAnual;
+          custoMOBaseline += horasAnuais * person.hourlyRate;
+        });
+      }
+    });
+
+    // Custo MO Pós-IA
+    let custoMOPosIA = 0;
+    activeIndicators.forEach(ind => {
+      if (ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) {
+        (ind.postIA.people || []).forEach(person => {
+          const freqAnual = calculateAnnualFrequency(person.frequencyQuantity, person.frequencyUnit);
+          const horasPorExecucao = person.minutesSpent / 60;
+          const horasAnuais = horasPorExecucao * freqAnual;
+          custoMOPosIA += horasAnuais * person.hourlyRate;
+        });
+      }
+    });
+
+    // Economia MO
+    const economiaMO = custoMOBaseline - custoMOPosIA;
+
+    // Custo IA Anual
+    let custoIAAnual = project.monthly_maintenance_cost * 12;
+    activeIndicators.forEach(ind => {
+      (ind.postIA.tools || []).forEach(tool => {
+        if (tool.otherCosts) {
+          const firstPerson = ind.postIA.people?.[0];
+          if (firstPerson) {
+            const freqAnual = calculateAnnualFrequency(firstPerson.frequencyQuantity, firstPerson.frequencyUnit);
+            custoIAAnual += tool.otherCosts * freqAnual;
+          }
+        }
+      });
+    });
+
+    // Economia Líquida
+    const economiaLiquida = economiaMO - custoIAAnual;
+
+    // ROI Calculado
+    const investimento = project.implementation_cost;
+    const roiCalculado = investimento > 0 ? ((economiaLiquida - investimento) / investimento) * 100 : 0;
+
+    // Payback Calculado
+    const paybackCalculado = economiaLiquida > 0 ? investimento / (economiaLiquida / 12) : 0;
+
+    return {
+      horasBaselineAno: Math.round(horasBaselineAno),
+      horasPosIAAno: Math.round(horasPosIAAno),
+      custoMOBaseline: custoMOBaseline,
+      custoMOPosIA: custoMOPosIA,
+      economiaMO: economiaMO,
+      custoIAAnual: custoIAAnual,
+      economiaLiquida: economiaLiquida,
+      roiCalculado: Number(roiCalculado.toFixed(2)),
+      paybackCalculado: Number(paybackCalculado.toFixed(1)),
+    };
+  };
+
   // Função para calcular estatísticas de um indicador
   const calculateIndicatorStats = (ind: Indicator) => {
     let monthlyEconomy = 0;
@@ -447,15 +565,15 @@ const ProjectDetail: React.FC = () => {
                 <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-1">Impacto Total Estimado</p>
-              <h3 className="text-3xl font-black">R$ {(indicators.reduce((acc, ind) => acc + calculateIndicatorStats(ind).annualEconomy, 0)).toLocaleString()} <span className="text-sm font-normal opacity-70">/ano</span></h3>
+              <h3 className="text-3xl font-black">R$ {(indicators.reduce((acc, ind) => acc + calculateIndicatorStats(ind).annualEconomy, 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-normal opacity-70">/ano</span></h3>
               <div className="mt-4 pt-4 border-t border-indigo-600/50 flex justify-between items-end">
                 <div>
                   <p className="text-indigo-200 text-[10px] font-bold uppercase">ROI Estimado</p>
-                  <p className="text-xl font-bold">+{project.roi_percentage}%</p>
+                  <p className="text-xl font-bold">+{project.roi_percentage || calculateProjectMetrics().roiCalculado}%</p>
                 </div>
                 <div className="text-right">
                   <p className="text-indigo-200 text-[10px] font-bold uppercase">Payback</p>
-                  <p className="text-xl font-bold">4.2m</p>
+                  <p className="text-xl font-bold">{calculateProjectMetrics().paybackCalculado}m</p>
                 </div>
               </div>
             </div>
@@ -465,14 +583,58 @@ const ProjectDetail: React.FC = () => {
               <div className="space-y-3">
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-500 dark:text-slate-400">Implementação</span>
-                  <span className="font-bold">R$ {project.implementation_cost.toLocaleString()}</span>
+                  <span className="font-bold">R$ {project.implementation_cost.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-500 dark:text-slate-400">Manutenção Mensal</span>
-                  <span className="font-bold">R$ {project.monthly_maintenance_cost.toLocaleString()}</span>
+                  <span className="font-bold">R$ {project.monthly_maintenance_cost.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
             </div>
+
+            {(() => {
+              const metrics = calculateProjectMetrics();
+              return (
+                <div className="space-y-4">
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">Horas Baseline/Ano</h4>
+                    <p className="text-2xl font-black text-slate-900 dark:text-white">{metrics.horasBaselineAno.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">Horas Pós-IA/Ano</h4>
+                    <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{metrics.horasPosIAAno.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">Custo MO Baseline</h4>
+                    <p className="text-2xl font-black text-red-600 dark:text-red-400">R$ {metrics.custoMOBaseline.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">Custo MO Pós-IA</h4>
+                    <p className="text-2xl font-black text-purple-600 dark:text-purple-400">R$ {metrics.custoMOPosIA.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">Economia MO</h4>
+                    <p className="text-2xl font-black text-green-600 dark:text-green-400">R$ {metrics.economiaMO.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">Custo IA Anual</h4>
+                    <p className="text-2xl font-black text-yellow-600 dark:text-yellow-400">R$ {metrics.custoIAAnual.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">Economia Líquida</h4>
+                    <p className="text-2xl font-black text-green-600 dark:text-green-400">R$ {metrics.economiaLiquida.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">ROI Calculado</h4>
+                    <p className="text-2xl font-black text-green-600 dark:text-green-400">{metrics.roiCalculado >= 0 ? '+' : ''}{metrics.roiCalculado}%</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h4 className="font-bold text-sm mb-3">Payback Calculado</h4>
+                    <p className="text-2xl font-black text-orange-600 dark:text-orange-400">{metrics.paybackCalculado}m</p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <div className="lg:col-span-3 space-y-6">
