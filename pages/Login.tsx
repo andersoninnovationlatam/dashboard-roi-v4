@@ -59,7 +59,7 @@ const Login: React.FC = () => {
           <div className="space-y-2">
             <div className="flex justify-between items-center ml-1">
               <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Senha</label>
-              <Link to="/forgot-password" className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">Esqueceu a senha?</Link>
+              {/*<Link to="/forgot-password" className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">Esqueceu a senha?</Link>*/}
             </div>
             <input
               type="password"
