@@ -33,7 +33,7 @@ const Login: React.FC = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-500/20 mb-4 text-white font-black text-3xl">
             <img src="../images/InnovationLatam300-removebg-preview.png" alt="Innovation Latam" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-white">ROI Analytics Pro</h1>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white">ROI Innovation Latam</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Faça login para gerenciar seus projetos de IA</p>
         </div>
 

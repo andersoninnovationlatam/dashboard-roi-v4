@@ -435,9 +435,9 @@ const ProjectDetail: React.FC = () => {
       id: Date.now().toString(),
       name: 'Novo Colaborador',
       role: 'Analista',
-      hourlyRate: 50,
-      minutesSpent: 30,
-      frequencyQuantity: 100,
+      hourlyRate: 0,
+      minutesSpent: 0,
+      frequencyQuantity: 0,
       frequencyUnit: FrequencyUnit.MONTH
     };
     newArr[idx].baseline.people = [...(newArr[idx].baseline.people || []), { ...newPerson }];
