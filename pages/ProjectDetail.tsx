@@ -1144,14 +1144,25 @@ const ProjectDetail: React.FC = () => {
                                           {((ind.baseline.people?.[pIdx]?.minutesSpent || 0) > p.minutesSpent) ? `-${(((ind.baseline.people?.[pIdx]?.minutesSpent || 0) - p.minutesSpent) / (ind.baseline.people?.[pIdx]?.minutesSpent || 1) * 100).toFixed(0)}% tempo` : ''}
                                         </span>
                                       </div>
-                                      <div>
-                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Minutos (IA)</label>
-                                        <input
-                                          type="number"
-                                          className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                          value={p.minutesSpent}
-                                          onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)}
-                                        />
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">R$/Hora</label>
+                                          <input
+                                            type="number"
+                                            className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            value={p.hourlyRate}
+                                            onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'hourlyRate', parseFloat(e.target.value) || 0)}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Minutos (IA)</label>
+                                          <input
+                                            type="number"
+                                            className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            value={p.minutesSpent}
+                                            onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)}
+                                          />
+                                        </div>
                                       </div>
                                       <div className="grid grid-cols-2 gap-3">
                                         <div>
