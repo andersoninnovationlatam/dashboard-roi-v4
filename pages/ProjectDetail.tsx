@@ -164,15 +164,14 @@ const ProjectDetail: React.FC = () => {
     // Custo IA Anual
     let custoIAAnual = project.monthly_maintenance_cost * 12;
     activeIndicators.forEach(ind => {
-      (ind.postIA.tools || []).forEach(tool => {
-        if (tool.otherCosts) {
-          const firstPerson = ind.postIA.people?.[0];
-          if (firstPerson) {
-            const freqAnual = calculateAnnualFrequency(firstPerson.frequencyQuantity, firstPerson.frequencyUnit);
-            custoIAAnual += tool.otherCosts * freqAnual;
-          }
-        }
-      });
+      if (ind.improvement_type === ImprovementType.RELATED_COSTS) {
+        (ind.baseline.tools || []).forEach(tool => {
+          const freqQty = (tool as any).frequencyQuantity || 0;
+          const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
+          const multiplier = getFrequencyMultiplier(freqUnit);
+          custoIAAnual += tool.monthlyCost * freqQty * multiplier;
+        });
+      }
     });
 
     // Economia Líquida
@@ -285,8 +284,9 @@ const ProjectDetail: React.FC = () => {
   };
 
   // Função para recalcular e atualizar ROI do projeto
-  const recalculateAndUpdateProject = useCallback(async () => {
-    if (!project) return;
+  const recalculateAndUpdateProject = useCallback(async (currentProject?: Project) => {
+    const projectToUse = currentProject || project;
+    if (!projectToUse) return;
 
     // Calcular ROI total baseado nos indicadores
     const totalEconomy = indicators.reduce((sum, ind) => {
@@ -295,12 +295,12 @@ const ProjectDetail: React.FC = () => {
     }, 0);
 
     const annualEconomy = totalEconomy * 12;
-    const totalCost = project.implementation_cost + (project.monthly_maintenance_cost * 12);
+    const totalCost = projectToUse.implementation_cost + (projectToUse.monthly_maintenance_cost * 12);
     const roiPercentage = totalCost > 0 ? ((annualEconomy - totalCost) / totalCost) * 100 : 0;
 
     try {
-      const updated = await projectService.update(project.id, {
-        ...project,
+      const updated = await projectService.update(projectToUse.id, {
+        ...projectToUse,
         total_economy_annual: annualEconomy,
         roi_percentage: roiPercentage,
       });
@@ -323,18 +323,19 @@ const ProjectDetail: React.FC = () => {
   }, [recalculateAndUpdateProject]);
 
   // Salvar projeto quando houver mudanças
-  const saveProject = useCallback(async (updates: Partial<Project>) => {
-    if (!project) return;
+  const saveProject = useCallback(async (updates: Partial<Project>, currentProject?: Project) => {
+    const projectToUpdate = currentProject || project;
+    if (!projectToUpdate) return;
     try {
-      const updated = await projectService.update(project.id, {
-        ...project,
+      const updated = await projectService.update(projectToUpdate.id, {
+        ...projectToUpdate,
         ...updates,
       });
       setProject(updated);
 
-      // Se os custos foram alterados, recalcular ROI
+      // Se os custos foram alterados, recalcular ROI usando o projeto atualizado
       if (updates.implementation_cost !== undefined || updates.monthly_maintenance_cost !== undefined) {
-        await recalculateAndUpdateProject();
+        await recalculateAndUpdateProject(updated);
       }
     } catch (error) {
       console.error('Erro ao salvar projeto:', error);
@@ -1630,8 +1631,9 @@ const ProjectDetail: React.FC = () => {
                         value={project.implementation_cost || ''}
                         onChange={async (e) => {
                           const newCost = parseFloat(e.target.value) || 0;
-                          setProject({ ...project, implementation_cost: newCost });
-                          await saveProject({ implementation_cost: newCost });
+                          const updatedProject = { ...project, implementation_cost: newCost };
+                          setProject(updatedProject);
+                          await saveProject({ implementation_cost: newCost }, updatedProject);
                         }}
                         placeholder="0.00"
                       />
@@ -1645,8 +1647,9 @@ const ProjectDetail: React.FC = () => {
                         value={project.monthly_maintenance_cost || ''}
                         onChange={async (e) => {
                           const newCost = parseFloat(e.target.value) || 0;
-                          setProject({ ...project, monthly_maintenance_cost: newCost });
-                          await saveProject({ monthly_maintenance_cost: newCost });
+                          const updatedProject = { ...project, monthly_maintenance_cost: newCost };
+                          setProject(updatedProject);
+                          await saveProject({ monthly_maintenance_cost: newCost }, updatedProject);
                         }}
                         placeholder="0.00"
                       />

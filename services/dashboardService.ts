@@ -270,19 +270,13 @@ const calculateIACostAnnual = (projects: Project[], indicators: Indicator[]): nu
     totalCost += project.monthly_maintenance_cost * 12;
 
     // Custo por execução (se houver em tools do postIA)
-    const projectIndicators = indicators.filter(ind => ind.project_id === project.id && ind.is_active);
+    const projectIndicators = indicators.filter(ind => ind.project_id === project.id && ind.is_active && ind.improvement_type === ImprovementType.RELATED_COSTS);
     projectIndicators.forEach(ind => {
-      (ind.postIA.tools || []).forEach(tool => {
-        // otherCosts pode representar custo por execução
-        if (tool.otherCosts) {
-          // Assumindo que otherCosts é custo por execução e precisamos multiplicar pela frequência anual
-          // Para simplificar, vamos usar a frequência do primeiro person do postIA
-          const firstPerson = ind.postIA.people?.[0];
-          if (firstPerson) {
-            const freqAnual = calculateAnnualFrequency(firstPerson.frequencyQuantity, firstPerson.frequencyUnit);
-            totalCost += tool.otherCosts * freqAnual;
-          }
-        }
+      (ind.baseline.tools || []).forEach(tool => {
+        const freqQty = (tool as any).frequencyQuantity || 0;
+        const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
+        const multiplier = getFrequencyMultiplierAnnual(freqUnit);
+        totalCost += tool.monthlyCost * freqQty * multiplier;
       });
     });
   });
