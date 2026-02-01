@@ -31,9 +31,9 @@ const Login: React.FC = () => {
       <div className="max-w-md w-full">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-500/20 mb-4 text-white font-black text-3xl">
-            <img src="/images/InnovationLatam300-removebg-preview.png" alt="Innovation Latam" className="w-full h-full object-contain" />
+            <img src="../images/InnovationLatam300-removebg-preview.png" alt="Innovation Latam" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-white">ROI Analytics Pro</h1>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white">ROI Analytics</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Faça login para gerenciar seus projetos de IA</p>
         </div>
 
@@ -59,7 +59,7 @@ const Login: React.FC = () => {
           <div className="space-y-2">
             <div className="flex justify-between items-center ml-1">
               <label className="text-xs font-black uppercase text-slate-400 tracking-widest">Senha</label>
-              <Link to="/forgot-password" className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">Esqueceu a senha?</Link>
+              {/*<Link to="/forgot-password" className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">Esqueceu a senha?</Link>*/}
             </div>
             <input
               type="password"
