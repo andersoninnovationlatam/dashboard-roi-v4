@@ -161,15 +161,18 @@ const ProjectDetail: React.FC = () => {
     // Economia MO
     const economiaMO = custoMOBaseline - custoMOPosIA;
 
-    // Custo IA Anual
-    let custoIAAnual = project.monthly_maintenance_cost * 12;
+    // Custo IA Anual - apenas custos marcados como "com IA"
+    let custoIAAnual = 0;
     activeIndicators.forEach(ind => {
       if (ind.improvement_type === ImprovementType.RELATED_COSTS) {
         (ind.baseline.tools || []).forEach(tool => {
-          const freqQty = (tool as any).frequencyQuantity || 0;
-          const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
-          const multiplier = getFrequencyMultiplier(freqUnit);
-          custoIAAnual += tool.monthlyCost * freqQty * multiplier;
+          // Só considerar custos marcados como "com IA"
+          if ((tool as any).isIACost) {
+            const freqQty = (tool as any).frequencyQuantity || 0;
+            const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
+            const multiplier = getFrequencyMultiplier(freqUnit);
+            custoIAAnual += tool.monthlyCost * freqQty * multiplier;
+          }
         });
       }
     });
@@ -464,6 +467,7 @@ const ProjectDetail: React.FC = () => {
     cost: number;
     frequencyQuantity: number;
     frequencyUnit: FrequencyUnit;
+    isIACost?: boolean;
   }
 
   const getRelatedCosts = (ind: Indicator): RelatedCost[] => {
@@ -474,6 +478,7 @@ const ProjectDetail: React.FC = () => {
       cost: tool.monthlyCost,
       frequencyQuantity: (tool as any).frequencyQuantity || 1,
       frequencyUnit: (tool as any).frequencyUnit || FrequencyUnit.MONTH,
+      isIACost: (tool as any).isIACost ?? false,
     }));
   };
 
@@ -485,6 +490,7 @@ const ProjectDetail: React.FC = () => {
       cost: 0,
       frequencyQuantity: 1,
       frequencyUnit: FrequencyUnit.MONTH,
+      isIACost: false,
     };
     if (!newArr[idx].baseline.tools) {
       newArr[idx].baseline.tools = [];
@@ -497,6 +503,7 @@ const ProjectDetail: React.FC = () => {
     } as any);
     (newArr[idx].baseline.tools[newArr[idx].baseline.tools.length - 1] as any).frequencyQuantity = newCost.frequencyQuantity;
     (newArr[idx].baseline.tools[newArr[idx].baseline.tools.length - 1] as any).frequencyUnit = newCost.frequencyUnit;
+    (newArr[idx].baseline.tools[newArr[idx].baseline.tools.length - 1] as any).isIACost = newCost.isIACost;
     setIndicators(newArr);
     await saveIndicator(newArr[idx]);
   };
@@ -509,6 +516,7 @@ const ProjectDetail: React.FC = () => {
       if (field === 'cost') tool.monthlyCost = value;
       if (field === 'frequencyQuantity') (tool as any).frequencyQuantity = value;
       if (field === 'frequencyUnit') (tool as any).frequencyUnit = value;
+      if (field === 'isIACost') (tool as any).isIACost = value;
     }
     setIndicators(newArr);
     await saveIndicator(newArr[idx]);
@@ -1092,15 +1100,18 @@ const ProjectDetail: React.FC = () => {
                                         </select>
                                       </div>
                                     </div>
-                                    {/*<div>
-                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Multiplicador Anual</label>
+                                    <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                                       <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-700 text-xs font-bold"
-                                        value={getFrequencyMultiplier(cost.frequencyUnit)}
-                                        onChange={(e) => updateFrequencyMultiplier(cost.frequencyUnit, parseFloat(e.target.value) || 1)}
+                                        type="checkbox"
+                                        id={`ia-cost-${cost.id}`}
+                                        className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500"
+                                        checked={cost.isIACost || false}
+                                        onChange={(e) => updateRelatedCost(idx, costIdx, 'isIACost', e.target.checked)}
                                       />
-                                    </div>*/}
+                                      <label htmlFor={`ia-cost-${cost.id}`} className="text-[9px] uppercase font-bold text-slate-400 cursor-pointer">
+                                        Custo com IA
+                                      </label>
+                                    </div>
                                   </div>
                                 ))}
                                 <button onClick={() => addRelatedCost(idx)} className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">+ Adicionar Novo Custo</button>

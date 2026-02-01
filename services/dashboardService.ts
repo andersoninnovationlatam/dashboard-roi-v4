@@ -265,19 +265,21 @@ const calculatePostIAMOCost = (indicators: Indicator[]): number => {
 const calculateIACostAnnual = (projects: Project[], indicators: Indicator[]): number => {
   let totalCost = 0;
 
-  projects.forEach(project => {
-    // Custo mensal de APIs (monthly_maintenance_cost) * 12
-    totalCost += project.monthly_maintenance_cost * 12;
-
-    // Custo por execução (se houver em tools do postIA)
-    const projectIndicators = indicators.filter(ind => ind.project_id === project.id && ind.is_active && ind.improvement_type === ImprovementType.RELATED_COSTS);
-    projectIndicators.forEach(ind => {
-      (ind.baseline.tools || []).forEach(tool => {
+  // Apenas custos relacionados marcados como "com IA"
+  const projectIndicators = indicators.filter(ind => 
+    ind.is_active && 
+    ind.improvement_type === ImprovementType.RELATED_COSTS
+  );
+  
+  projectIndicators.forEach(ind => {
+    (ind.baseline.tools || []).forEach(tool => {
+      // Só considerar custos marcados como "com IA"
+      if ((tool as any).isIACost) {
         const freqQty = (tool as any).frequencyQuantity || 0;
         const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
         const multiplier = getFrequencyMultiplierAnnual(freqUnit);
         totalCost += tool.monthlyCost * freqQty * multiplier;
-      });
+      }
     });
   });
 
