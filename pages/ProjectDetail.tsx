@@ -200,25 +200,48 @@ const ProjectDetail: React.FC = () => {
     };
   };
 
+  // Função auxiliar para calcular multiplicador anual
+  const calculateAnnualMultiplier = (unit: FrequencyUnit): number => {
+    return getFrequencyMultiplier(unit);
+  };
+
   // Função para calcular estatísticas de um indicador
   const calculateIndicatorStats = (ind: Indicator) => {
+    // 1. Cálculo de Custo de Pessoas (Normalizado para Mensal)
+    const calcNormalizedMonthlyPeopleCost = (data: IndicatorData) => {
+      return (data.people || []).reduce((acc, p) => {
+        const annualFreq = p.frequencyQuantity * calculateAnnualMultiplier(p.frequencyUnit);
+        const monthlyFreq = annualFreq / 12;
+        const costPerExecution = (p.minutesSpent / 60) * p.hourlyRate;
+        return acc + (costPerExecution * monthlyFreq);
+      }, 0);
+    };
+
+    // 2. Cálculo de Ferramentas (Mensal)
+    const calcMonthlyToolCost = (data: IndicatorData) => {
+      return (data.tools || []).reduce((acc, t) => acc + t.monthlyCost, 0);
+    };
+
+    const baselinePeople = calcNormalizedMonthlyPeopleCost(ind.baseline);
+    const baselineTools = calcMonthlyToolCost(ind.baseline);
+    const postIAPeople = calcNormalizedMonthlyPeopleCost(ind.postIA);
+    const postIATools = calcMonthlyToolCost(ind.postIA);
+
+    // Custos Operacionais Base
+    const totalBaselineMonthly = baselinePeople + baselineTools + (ind.baseline.cost || 0);
+    const totalPostIAMonthly = postIAPeople + postIATools + (ind.postIA.cost || 0);
+
     let monthlyEconomy = 0;
-    let baselineCost = 0;
-    let postIACost = 0;
     let improvementPct = "0";
 
-    const calcPeopleCost = (people?: PersonInvolved[]) =>
-      (people || []).reduce((acc, p) => acc + (p.hourlyRate * (p.minutesSpent / 60) * p.frequencyQuantity), 0);
-
-    const calcToolsCost = (tools?: ToolCost[]) =>
-      (tools || []).reduce((acc, t) => acc + (t.monthlyCost + (t.otherCosts || 0)), 0);
-
+    // 3. LÓGICA DE NEGÓCIO POR TIPO DE MELHORIA
     switch (ind.improvement_type) {
       case ImprovementType.PRODUCTIVITY:
       case ImprovementType.SPEED:
       case ImprovementType.DECISION_QUALITY:
-        baselineCost = calcPeopleCost(ind.baseline.people) + calcToolsCost(ind.baseline.tools) + (ind.baseline.cost || 0);
-        postIACost = calcPeopleCost(ind.postIA.people) + calcToolsCost(ind.postIA.tools) + (ind.postIA.cost || 0);
+        // Economia direta de tempo/recurso no processo atual
+        let baselineCost = totalBaselineMonthly;
+        let postIACost = totalPostIAMonthly;
 
         if (ind.improvement_type === ImprovementType.DECISION_QUALITY) {
           baselineCost += (ind.baseline.decisionCount || 0) * (1 - (ind.baseline.accuracyPct || 0) / 100) * (ind.baseline.errorCost || 0);
@@ -229,9 +252,25 @@ const ProjectDetail: React.FC = () => {
         improvementPct = baselineCost > 0 ? ((baselineCost - postIACost) / baselineCost * 100).toFixed(1) : "0";
         break;
 
+      case ImprovementType.ANALYTICAL_CAPACITY:
+        /** * CORREÇÃO: CUSTO EVITADO (Avoided Cost)
+         * Se o volume aumentou, quanto custaria fazer esse NOVO volume no método antigo?
+         */
+        const unitCostBaseline = ind.baseline.volume && ind.baseline.volume > 0
+          ? totalBaselineMonthly / ind.baseline.volume
+          : (ind.baseline.cost || 0); // fallback para custo informado manual
+
+        const costToScaleManual = unitCostBaseline * (ind.postIA.volume || 1);
+        monthlyEconomy = costToScaleManual - totalPostIAMonthly;
+        improvementPct = costToScaleManual > 0 ? (((costToScaleManual - totalPostIAMonthly) / costToScaleManual) * 100).toFixed(1) : "0";
+        break;
+
       case ImprovementType.REVENUE_INCREASE:
-        monthlyEconomy = (ind.postIA.revenue || 0) - (ind.baseline.revenue || 0);
-        improvementPct = ind.baseline.revenue ? (((ind.postIA.revenue || 0) / (ind.baseline.revenue || 1) - 1) * 100).toFixed(1) : "100";
+        // Aplica-se a margem sobre o aumento de receita (se disponível no types)
+        const margin = (ind.postIA as any).marginPct || 1; // 1 = 100% se não preenchido
+        const revenueGain = (ind.postIA.revenue || 0) - (ind.baseline.revenue || 0);
+        monthlyEconomy = (revenueGain * margin) - totalPostIAMonthly;
+        improvementPct = ind.baseline.revenue ? (((revenueGain * margin) / ind.baseline.revenue) * 100).toFixed(1) : "100";
         break;
 
       case ImprovementType.MARGIN_IMPROVEMENT:
@@ -242,9 +281,10 @@ const ProjectDetail: React.FC = () => {
         break;
 
       case ImprovementType.RISK_REDUCTION:
+        // (Probabilidade x Impacto) Anterior - (Probabilidade x Impacto) Atual
         const riskBefore = (ind.baseline.probability || 0) / 100 * (ind.baseline.impact || 0);
         const riskAfter = (ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0);
-        monthlyEconomy = (riskBefore - riskAfter) + ((ind.baseline.mitigationCost || 0) - (ind.postIA.mitigationCost || 0));
+        monthlyEconomy = ((riskBefore - riskAfter) / 12) + ((ind.baseline.mitigationCost || 0) - (ind.postIA.mitigationCost || 0)); // impacto anualizado para mensal
         improvementPct = riskBefore > 0 ? (((riskBefore - riskAfter) / riskBefore) * 100).toFixed(1) : "0";
         break;
 
@@ -253,13 +293,6 @@ const ProjectDetail: React.FC = () => {
         const churnAfterVal = (ind.postIA.churnRate || 0) / 100 * (ind.postIA.clientCount || 0) * (ind.postIA.valuePerClient || 0);
         monthlyEconomy = (churnBeforeVal - churnAfterVal) + ((ind.postIA.revenue || 0) - (ind.baseline.revenue || 0));
         improvementPct = (ind.postIA.score && ind.baseline.score) ? (((ind.postIA.score - ind.baseline.score) / ind.baseline.score) * 100).toFixed(1) : "0";
-        break;
-
-      case ImprovementType.ANALYTICAL_CAPACITY:
-        const analyticalBaseline = (ind.baseline.volume || 0) * (ind.baseline.cost || 0);
-        const analyticalPost = (ind.postIA.volume || 0) * (ind.postIA.cost || 0);
-        monthlyEconomy = analyticalBaseline - analyticalPost;
-        improvementPct = analyticalBaseline > 0 ? (((analyticalBaseline - analyticalPost) / analyticalBaseline) * 100).toFixed(1) : "0";
         break;
 
       case ImprovementType.RELATED_COSTS:
@@ -275,8 +308,8 @@ const ProjectDetail: React.FC = () => {
         break;
 
       default:
-        monthlyEconomy = (ind.postIA.value || 0) - (ind.baseline.value || 0);
-        improvementPct = ind.baseline.value ? (((ind.postIA.value || 0) / (ind.baseline.value || 1) - 1) * 100).toFixed(1) : "0";
+        monthlyEconomy = totalBaselineMonthly - totalPostIAMonthly;
+        improvementPct = totalBaselineMonthly > 0 ? (((totalBaselineMonthly - totalPostIAMonthly) / totalBaselineMonthly) * 100).toFixed(1) : "0";
     }
 
     return {
@@ -1410,6 +1443,7 @@ const ProjectDetail: React.FC = () => {
                                     <div>
                                       <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Volume de Análises/Mês com IA</label>
                                       <input
+                                        required={true}
                                         type="number"
                                         className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
                                         value={ind.postIA.volume || 0}
@@ -1466,7 +1500,7 @@ const ProjectDetail: React.FC = () => {
                             </div>
                             <div className="flex flex-col border-l border-slate-800 pl-12">
                               <span className="text-[9px] font-black uppercase text-slate-500">Economia Mensal</span>
-                              <span className="text-xl font-black text-green-400">R$ {stats.monthlyEconomy.toLocaleString()}</span>
+                              <span className="text-xl font-black text-green-400">R$ {parseFloat(stats.monthlyEconomy || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                           </div>
                           <div className="text-right">
