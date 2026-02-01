@@ -855,7 +855,6 @@ const ProjectDetail: React.FC = () => {
                                     </div>*/}
                                   </div>
                                 ))}
-                                <button onClick={() => addPerson(idx)} className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">+ Adicionar Novo Colaborador/Fluxo</button>
                                 {ind.improvement_type === ImprovementType.DECISION_QUALITY && (
                                   <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60 space-y-3 mt-4">
                                     <div>
@@ -889,6 +888,7 @@ const ProjectDetail: React.FC = () => {
                                     </div>
                                   </div>
                                 )}
+                                <button onClick={() => addPerson(idx)} className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">+ Adicionar Novo Colaborador/Fluxo</button>
                               </div>
                             )}
 
