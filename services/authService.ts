@@ -28,7 +28,14 @@ export const authService = {
   },
 
   // Cadastro de novo usuário
-  async signUp(email: string, password: string, fullName: string, role: UserRole = UserRole.VIEWER) {
+  async signUp(
+    email: string,
+    password: string,
+    fullName: string,
+    organizationName: string,
+    role: UserRole = UserRole.ADMIN // Primeiro usuário é admin
+  ) {
+    // 1. Criar usuário no Supabase Auth
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -36,11 +43,47 @@ export const authService = {
         data: {
           full_name: fullName,
           role: role,
+          organization_name: organizationName, // Passar no metadata
         },
       },
     });
 
     if (error) throw error;
+
+    // 2. Criar organização
+    const { data: orgData, error: orgError } = await supabase
+      .from('organizations')
+      .insert({
+        name: organizationName,
+      })
+      .select()
+      .single();
+
+    if (orgError) {
+      console.error('Erro ao criar organização:', orgError);
+      throw new Error('Erro ao criar organização. Tente novamente.');
+    }
+
+    // 3. Aguardar um pouco para o trigger criar o perfil
+    // Depois atualizar o perfil com organization_id e role de admin
+    if (data.user) {
+      // Aguardar trigger executar
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const { error: profileError } = await supabase
+        .from('user_profiles')
+        .update({
+          organization_id: orgData.id,
+          role: role, // Primeiro usuário é admin
+        })
+        .eq('id', data.user.id);
+
+      if (profileError) {
+        console.error('Erro ao atualizar perfil com organização:', profileError);
+        // Não falhar completamente, mas logar o erro
+      }
+    }
+
     return data;
   },
 
