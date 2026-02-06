@@ -5,7 +5,6 @@ import KPICard from '../components/KPICard';
 import { dashboardService, EconomyHistoryItem, DistributionItem } from '../services/dashboardService';
 import { KPIStats } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { GoogleGenAI } from "@google/genai";
 import { aiPromptService } from '../services/aiPromptService';
 
 const ExecutiveDashboard: React.FC = () => {
@@ -56,25 +55,9 @@ const ExecutiveDashboard: React.FC = () => {
   const generateAIInsight = async () => {
     setLoadingAi(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-      // Carrega o prompt customizado do banco de dados
-      const promptTemplate = await aiPromptService.getPrompt();
-
-      // Faz os replaces das variáveis
-      const finalPrompt = promptTemplate
-        .replace('{roi_total}', stats.roi_total.toString())
-        .replace('{economia_anual}', stats.economia_anual.toLocaleString())
-        .replace('{horas_economizadas_ano}', stats.horas_economizadas_ano.toLocaleString())
-        .replace('{projetos_producao}', stats.projetos_producao.toString())
-        .replace('{payback_medio}', stats.payback_medio.toString());
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: finalPrompt,
-      });
-
-      setAiInsight(response.text || "Insight não disponível no momento.");
+      // Usa a função do serviço que busca dados dos indicadores do banco e gera o insight
+      const insight = await aiPromptService.generateInsight();
+      setAiInsight(insight);
     } catch (err) {
       console.error(err);
       setAiInsight("Erro ao gerar insight estratégico via IA.");

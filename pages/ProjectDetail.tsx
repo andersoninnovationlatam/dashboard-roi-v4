@@ -5,7 +5,6 @@ import ReactMarkdown from 'react-markdown';
 import { projectService, indicatorService } from '../services/projectService';
 import { Project, Indicator, ProjectStatus, DevelopmentType, ImprovementType, FrequencyUnit, PersonInvolved, IndicatorData, ToolCost } from '../types';
 import { DEVELOPMENT_LABELS, STATUS_COLORS, IMPROVEMENT_LABELS } from '../constants';
-import { GoogleGenAI } from "@google/genai";
 import { aiPromptService } from '../services/aiPromptService';
 import ConfirmModal from '../components/ConfirmModal';
 import ToastContainer from '../components/ToastContainer';
@@ -387,56 +386,9 @@ const ProjectDetail: React.FC = () => {
   const generateProjectAIInsight = async () => {
     setLoadingAi(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const annualImpact = indicators.reduce((acc, ind) => acc + calculateIndicatorStats(ind).annualEconomy, 0);
-
-      // Busca o prompt do banco de dados primeiro, se não existir usa o padrão
-      let promptTemplate = await aiPromptService.getPrompt();
-
-      // Prompt padrão específico para projeto (caso o prompt do banco seja muito genérico)
-      const defaultProjectPrompt = `Analise o projeto de IA específico:
-      - Nome: {nome_projeto}
-      - Tipo: {tipo_projeto}
-      - Status: {status_projeto}
-      - Economia Anual Estimada: R$ {economia_anual_projeto}
-      - ROI do Projeto: {roi_projeto}%
-      - Sponsor: {sponsor_projeto}
-      
-      Gere um insight executivo curto e direto em Português sobre o valor deste projeto específico para o negócio.`;
-
-      // Se o prompt do banco for o padrão do dashboard, usa o prompt específico de projeto
-      // Caso contrário, adapta o prompt do banco para incluir informações do projeto
-      let finalPrompt: string;
-
-      if (promptTemplate.includes('{roi_total}') || promptTemplate.includes('{economia_anual}')) {
-        // É o prompt padrão do dashboard, usa o prompt específico de projeto
-        finalPrompt = defaultProjectPrompt;
-      } else {
-        // É um prompt customizado, adapta para o contexto do projeto
-        finalPrompt = promptTemplate + `\n\nContexto do projeto específico:
-      - Nome: {nome_projeto}
-      - Tipo: {tipo_projeto}
-      - Status: {status_projeto}
-      - Economia Anual Estimada: R$ {economia_anual_projeto}
-      - ROI do Projeto: {roi_projeto}%
-      - Sponsor: {sponsor_projeto}`;
-      }
-
-      // Substitui as variáveis do projeto
-      finalPrompt = finalPrompt
-        .replace('{nome_projeto}', project.name || 'Não informado')
-        .replace('{tipo_projeto}', DEVELOPMENT_LABELS[project.development_type] || 'Não informado')
-        .replace('{status_projeto}', project.status || 'Não informado')
-        .replace('{economia_anual_projeto}', annualImpact.toLocaleString())
-        .replace('{roi_projeto}', (project.roi_percentage || 0).toString())
-        .replace('{sponsor_projeto}', project.sponsor || 'Não informado');
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: finalPrompt,
-      });
-
-      setAiInsight(response.text || "Insight não disponível.");
+      // Usa a função do serviço que busca dados dos indicadores do banco e gera o insight
+      const insight = await aiPromptService.generateProjectInsight(id!);
+      setAiInsight(insight);
     } catch (err) {
       console.error(err);
       setAiInsight("Erro ao processar insight da IA.");
