@@ -178,9 +178,9 @@ export const aiPromptService = {
             throw new Error('Perfil de usuário não encontrado');
         }
 
-        // Verifica se o usuário tem permissão (admin ou manager)
-        if (profile.role !== 'admin' && profile.role !== 'manager') {
-            throw new Error(`Você não tem permissão para salvar prompts. Seu role atual é: ${profile.role}. Apenas admins e managers podem editar prompts.`);
+        // Verifica se o usuário é admin (apenas admins podem editar)
+        if (profile.role !== 'admin') {
+            throw new Error(`Você não tem permissão para salvar prompts. Seu role atual é: ${profile.role}. Apenas admins podem editar prompts.`);
         }
 
         // Verifica se a tabela existe primeiro
@@ -224,7 +224,7 @@ export const aiPromptService = {
                     details: error.details,
                     hint: error.hint
                 });
-                throw new Error(`Erro ao atualizar prompt: ${error.message || error.code}. Verifique se você tem permissão (admin/manager) e se as políticas RLS estão configuradas corretamente.`);
+                throw new Error(`Erro ao atualizar prompt: ${error.message || error.code}. Verifique se você tem permissão (admin) e se as políticas RLS estão configuradas corretamente.`);
             }
             console.log('Prompt atualizado com sucesso no banco');
         } else {
@@ -246,7 +246,7 @@ export const aiPromptService = {
                     details: error.details,
                     hint: error.hint
                 });
-                throw new Error(`Erro ao salvar prompt: ${error.message || error.code}. Verifique se você tem permissão (admin/manager) e se as políticas RLS estão configuradas corretamente. Detalhes: ${error.details || 'N/A'}`);
+                throw new Error(`Erro ao salvar prompt: ${error.message || error.code}. Verifique se você tem permissão (admin) e se as políticas RLS estão configuradas corretamente. Detalhes: ${error.details || 'N/A'}`);
             }
             console.log('Prompt criado com sucesso no banco:', inserted?.id);
         }

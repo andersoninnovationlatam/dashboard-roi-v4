@@ -28,6 +28,9 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Verificar se é admin
+  const isAdmin = profile?.role === 'admin';
+
   useEffect(() => {
     loadPrompt();
 
@@ -222,22 +225,56 @@ const Settings: React.FC<SettingsProps> = ({ theme, toggleTheme }) => {
           <span className="px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-[10px] font-black border border-green-500/30 uppercase">Ativo</span>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between">
-          <div className="flex gap-4 items-center">
+        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+          <div className="flex gap-4 items-center mb-4">
             <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
-            <div>
+            <div className="flex-1">
               <p className="font-bold">Motor de Insights ROI</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Configure como a IA analisa seus dados estratégicos.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {isAdmin
+                  ? 'Configure como a IA analisa seus dados estratégicos.'
+                  : 'Prompt configurado pelo administrador da organização.'}
+              </p>
             </div>
           </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all"
-          >
-            Configurar Prompt
-          </button>
+
+          {/* Mostrar prompt atual para todos (somente leitura para não-admins) */}
+          <div className="mt-4 space-y-2">
+            <label className="text-xs font-black uppercase text-slate-400 tracking-widest">
+              Prompt Atual {!isAdmin && '(Somente Leitura)'}
+            </label>
+            <textarea
+              value={prompt}
+              readOnly={!isAdmin}
+              onChange={isAdmin ? (e) => setPrompt(e.target.value) : undefined}
+              className={`w-full h-48 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 font-mono text-sm outline-none transition-all dark:text-indigo-300 ${isAdmin
+                ? 'focus:ring-2 focus:ring-indigo-500 cursor-text'
+                : 'cursor-not-allowed opacity-75'
+                }`}
+              placeholder="Carregando prompt..."
+            />
+            {isAdmin && (
+              <div className="flex gap-2 flex-wrap mt-2">
+                {['roi_total', 'economia_anual', 'horas_economizadas_ano', 'payback_medio'].map(tag => (
+                  <span key={tag} className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono text-slate-500 uppercase">{`{${tag}}`}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Botão de configurar apenas para admins */}
+          {isAdmin && (
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all"
+              >
+                Editar Prompt
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
