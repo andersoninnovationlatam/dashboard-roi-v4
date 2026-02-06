@@ -2,93 +2,93 @@ import { Resend } from 'npm:resend@4.8.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers':
-        'authorization, x-client-info, apikey, content-type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 Deno.serve(async (req) => {
-    // ===============================
-    // CORS / PREFLIGHT
-    // ===============================
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { status: 200, headers: corsHeaders })
+  // ===============================
+  // CORS / PREFLIGHT
+  // ===============================
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { status: 200, headers: corsHeaders })
+  }
+
+  if (req.method !== 'POST') {
+    return new Response('Method Not Allowed', {
+      status: 405,
+      headers: corsHeaders,
+    })
+  }
+
+  // ===============================
+  // ENV VALIDATION
+  // ===============================
+  const resendKey = Deno.env.get('RESEND_API_KEY')
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+  if (!resendKey || !supabaseUrl || !serviceRoleKey) {
+    return new Response(
+      JSON.stringify({ error: 'Missing environment variables' }),
+      { status: 500, headers: corsHeaders }
+    )
+  }
+
+  const resend = new Resend(resendKey)
+  const supabase = createClient(supabaseUrl, serviceRoleKey)
+
+  // ===============================
+  // BODY
+  // ===============================
+  const body = await req.json()
+  const { to, type, organizationName, oldRole, newRole, fullName } = body
+
+  if (!to || !type) {
+    return new Response('Invalid payload', {
+      status: 400,
+      headers: corsHeaders,
+    })
+  }
+
+  // ===============================
+  // INVITE LINK (WELCOME)
+  // ===============================
+  let actionLink = '#'
+
+  if (type === 'welcome') {
+    // Usar inviteUserByEmail que cria o usuário automaticamente se não existir
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'recovery',
+      email: to,
+      options: {
+        redirectTo: 'https://dashboard-roi-v4.vercel.app/#/reset-password',
+      },
+    })
+
+    if (linkError) {
+      return new Response(JSON.stringify({ error: linkError.message }), {
+        status: 500,
+        headers: corsHeaders,
+      })
     }
 
-    if (req.method !== 'POST') {
-        return new Response('Method Not Allowed', {
-            status: 405,
-            headers: corsHeaders,
-        })
-    }
+    actionLink = linkData.properties.action_link
 
-    // ===============================
-    // ENV VALIDATION
-    // ===============================
-    const resendKey = Deno.env.get('RESEND_API_KEY')
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  }
 
-    if (!resendKey || !supabaseUrl || !serviceRoleKey) {
-        return new Response(
-            JSON.stringify({ error: 'Missing environment variables' }),
-            { status: 500, headers: corsHeaders }
-        )
-    }
-
-    const resend = new Resend(resendKey)
-    const supabase = createClient(supabaseUrl, serviceRoleKey)
-
-    // ===============================
-    // BODY
-    // ===============================
-    const body = await req.json()
-    const { to, type, organizationName, oldRole, newRole, fullName } = body
-
-    if (!to || !type) {
-        return new Response('Invalid payload', {
-            status: 400,
-            headers: corsHeaders,
-        })
-    }
-
-    // ===============================
-    // INVITE LINK (WELCOME)
-    // ===============================
-    let actionLink = '#'
-
-    if (type === 'welcome') {
-        // Usar inviteUserByEmail que cria o usuário automaticamente se não existir
-        const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-            type: 'recovery',
-            email: to,
-            options: {
-                redirectTo: 'https://dashboard-roi-v4.vercel.app/#/login',
-            },
-        })
-
-        if (linkError) {
-            return new Response(JSON.stringify({ error: linkError.message }), {
-                status: 500,
-                headers: corsHeaders,
-            })
-        }
-
-        actionLink = linkData.properties.action_link
-
-    }
-
-    // ===============================
-    // EMAIL TEMPLATES
-    // ===============================
-    const templates: Record<
-        string,
-        { subject: string; html: string }
-    > = {
-        welcome: {
-            subject: `Bem-vindo à ${organizationName ?? 'ROI Analytics'}!`,
-            html: `
+  // ===============================
+  // EMAIL TEMPLATES
+  // ===============================
+  const templates: Record<
+    string,
+    { subject: string; html: string }
+  > = {
+    welcome: {
+      subject: `Bem-vindo à ${organizationName ?? 'ROI Analytics'}!`,
+      html: `
 <!DOCTYPE html>
 <html lang="pt-BR">
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;">
@@ -129,11 +129,11 @@ Deno.serve(async (req) => {
 </body>
 </html>
       `,
-        },
+    },
 
-        role_change: {
-            subject: 'Sua função foi alterada',
-            html: `
+    role_change: {
+      subject: 'Sua função foi alterada',
+      html: `
 <!DOCTYPE html>
 <html lang="pt-BR">
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;">
@@ -159,37 +159,37 @@ Deno.serve(async (req) => {
 </body>
 </html>
       `,
-        },
-    }
+    },
+  }
 
-    const template = templates[type]
+  const template = templates[type]
 
-    if (!template) {
-        return new Response('Invalid type', {
-            status: 400,
-            headers: corsHeaders,
-        })
-    }
-
-    // ===============================
-    // SEND EMAIL
-    // ===============================
-    const { error } = await resend.emails.send({
-        from: 'ROI Analytics <contato@aaspia.com.br>',
-        to,
-        subject: template.subject,
-        html: template.html,
+  if (!template) {
+    return new Response('Invalid type', {
+      status: 400,
+      headers: corsHeaders,
     })
+  }
 
-    if (error) {
-        return new Response(JSON.stringify(error), {
-            status: 500,
-            headers: corsHeaders,
-        })
-    }
+  // ===============================
+  // SEND EMAIL
+  // ===============================
+  const { error } = await resend.emails.send({
+    from: 'ROI Analytics <contato@aaspia.com.br>',
+    to,
+    subject: template.subject,
+    html: template.html,
+  })
 
-    return new Response(
-        JSON.stringify({ success: true }),
-        { status: 200, headers: corsHeaders }
-    )
+  if (error) {
+    return new Response(JSON.stringify(error), {
+      status: 500,
+      headers: corsHeaders,
+    })
+  }
+
+  return new Response(
+    JSON.stringify({ success: true }),
+    { status: 200, headers: corsHeaders }
+  )
 })
