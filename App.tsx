@@ -10,6 +10,7 @@ import Settings from './pages/Settings';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Reports from './pages/Reports';
+import TeamManagement from './pages/TeamManagement';
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
@@ -81,7 +82,7 @@ const AppContent: React.FC = () => {
           {/* Botão de menu para mobile */}
           <button
             onClick={toggleSidebar}
-            className="md:hidden fixed top-4 left-4 z-30 w-10 h-10 bg-[#951b81] text-white rounded-lg flex items-center justify-center shadow-lg hover:bg-indigo-500 transition-colors"
+            className="md:hidden fixed top-4 left-4 z-30 w-10 h-10 bg-indigo-700 text-white rounded-lg flex items-center justify-center shadow-lg hover:bg-indigo-500 transition-colors"
             aria-label="Toggle sidebar"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -96,6 +97,7 @@ const AppContent: React.FC = () => {
               <Route path="/projects/new" element={<ProjectCreate />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/team" element={<TeamManagement />} />
               <Route path="/settings" element={<Settings theme={theme} toggleTheme={toggleTheme} />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>

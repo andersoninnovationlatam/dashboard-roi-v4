@@ -8,7 +8,7 @@ A plataforma é um dashboard executivo e técnico para mensurar o retorno sobre 
 ## 2. Estrutura de "Dados" (State Management)
 Atualmente, o projeto não utiliza um backend real. Os dados são estruturados da seguinte forma:
 - **Types (Fonte de Verdade):** Localizados em `types.ts`. Qualquer nova métrica deve ser adicionada aqui primeiro.
-- **Mock Data:** Localizado em `services/mockData.ts`. Este arquivo simula o banco de dados. Para persistência real, usamos o `localStorage` (ex: configurações de tema, login e prompts de IA).
+- **Mock Data:** Localizado em `services/mockData.ts`. Este arquivo simula o banco de dados. Para persistência real, usamos o `supabase` (ex: configurações de tema, login e prompts de IA).
 - **Relacionamentos:** 
   - Um `Project` possui vários `Indicator`.
   - Um `Indicator` compara um `baseline` (como era antes da IA) com um `postIA` (como ficou depois).
@@ -21,7 +21,7 @@ O cálculo principal reside em `pages/ProjectDetail.tsx`. A regra de ouro é:
 
 ## 4. Integração com IA (Gemini API)
 Usamos o SDK `@google/genai` com o modelo `gemini-3-flash-preview`.
-- **Global Insights:** No `ExecutiveDashboard`, a IA lê o portfólio completo usando um prompt customizável salvo no `localStorage`.
+
 - **Project Insights:** No `ProjectDetail`, a IA analisa as métricas específicas daquele projeto.
 - **Configuração:** O prompt mestre é editável em `pages/Settings.tsx` e suporta tags como `{roi_total}` e `{economia_anual}`.
 
@@ -44,4 +44,4 @@ Usamos o SDK `@google/genai` com o modelo `gemini-3-flash-preview`.
 ## 7. Fluxo de Inputs e Persistência
 1. **Inputs:** Coletados via formulários em `ProjectCreate` e modais/campos em `ProjectDetail`.
 2. **Processamento:** Os cálculos de ROI são feitos em tempo real via funções auxiliares (ex: `calculateIndicatorStats`).
-3. **Persistência Simulada:** No momento, as alterações em indicadores nos detalhes do projeto são mantidas no estado do componente (`useState`). Para persistir entre sessões, deve-se implementar a escrita no `localStorage` ou atualizar o `mockData`.
+3. **Persistência Simulada:** No momento, as alterações em indicadores nos detalhes do projeto são mantidas no estado do componente (`useState`).

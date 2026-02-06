@@ -84,6 +84,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
             {isOpen && <span className="whitespace-nowrap">Relatórios</span>}
           </NavLink>
+
+          <NavLink
+            to="/team"
+            className={({ isActive }) => `flex items-center gap-3 p-3.5 rounded-xl text-sm font-bold transition-all ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${!isOpen ? 'justify-center' : ''}`}
+            title="Gestão de Equipe"
+          >
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+            {isOpen && <span className="whitespace-nowrap">Gestão de Equipe</span>}
+          </NavLink>
         </nav>
 
         <div className="p-4 border-t border-slate-800 space-y-1">
@@ -96,7 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             {isOpen && (
               <div className="flex items-center justify-between w-full">
                 <span className="whitespace-nowrap">Configurações</span>
-                <p className="text-xs text-slate-500">v0.1.8</p>
+                <p className="text-xs text-slate-500">v0.1.9</p>
               </div>
             )}
           </NavLink>

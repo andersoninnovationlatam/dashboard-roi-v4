@@ -7,7 +7,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string, organizationName: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -73,15 +73,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const signUp = async (email: string, password: string, fullName: string) => {
-    const data = await authService.signUp(email, password, fullName);
+  const signUp = async (email: string, password: string, fullName: string, organizationName: string) => {
+    const data = await authService.signUp(email, password, fullName, organizationName);
     if (data.user) {
       setUser(data.user);
-      // Perfil será criado automaticamente pelo trigger
-      // Aguardar um pouco para o trigger executar
+      // Aguardar um pouco para o trigger executar e organização ser vinculada
       setTimeout(async () => {
         await loadProfile(data.user!.id);
-      }, 1000);
+      }, 1500);
     }
   };
 

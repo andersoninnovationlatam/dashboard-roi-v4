@@ -172,7 +172,7 @@ const ProjectCreate: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="bg-[#951b81] text-white px-10 py-4 rounded-xl font-black hover:bg-[#951b81] transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50 flex items-center gap-2"
+              className="bg-indigo-700 text-white px-10 py-4 rounded-xl font-black hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50 flex items-center gap-2"
             >
               {loading ? (
                 <>

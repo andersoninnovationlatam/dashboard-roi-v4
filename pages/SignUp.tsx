@@ -10,6 +10,7 @@ const SignUp: React.FC = () => {
     email: '',
     password: '',
     confirmPassword: '',
+    organizationName: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -28,9 +29,14 @@ const SignUp: React.FC = () => {
       return;
     }
 
+    if (!formData.organizationName.trim()) {
+      setError('Por favor, informe o nome da sua empresa.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await signUp(formData.email, formData.password, formData.fullName);
+      await signUp(formData.email, formData.password, formData.fullName, formData.organizationName);
       navigate('/');
     } catch (err: any) {
       setError(err.message || 'Erro ao criar conta. Tente novamente.');
@@ -66,6 +72,18 @@ const SignUp: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
               className="w-full bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white"
               placeholder="João Silva"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Empresa</label>
+            <input 
+              type="text" 
+              required
+              value={formData.organizationName}
+              onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl p-4 font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white"
+              placeholder="Minha Empresa Ltda"
             />
           </div>
 

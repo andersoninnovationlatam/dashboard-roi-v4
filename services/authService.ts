@@ -28,7 +28,14 @@ export const authService = {
   },
 
   // Cadastro de novo usuário
-  async signUp(email: string, password: string, fullName: string, role: UserRole = UserRole.VIEWER) {
+  async signUp(
+    email: string,
+    password: string,
+    fullName: string,
+    organizationName: string,
+    role: UserRole = UserRole.ADMIN // Primeiro usuário é admin
+  ) {
+    // 1. Criar usuário no Supabase Auth
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -36,11 +43,47 @@ export const authService = {
         data: {
           full_name: fullName,
           role: role,
+          organization_name: organizationName, // Passar no metadata
         },
       },
     });
 
     if (error) throw error;
+
+    // 2. Criar organização
+    const { data: orgData, error: orgError } = await supabase
+      .from('organizations')
+      .insert({
+        name: organizationName,
+      })
+      .select()
+      .single();
+
+    if (orgError) {
+      console.error('Erro ao criar organização:', orgError);
+      throw new Error('Erro ao criar organização. Tente novamente.');
+    }
+
+    // 3. Aguardar um pouco para o trigger criar o perfil
+    // Depois atualizar o perfil com organization_id e role de admin
+    if (data.user) {
+      // Aguardar trigger executar
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const { error: profileError } = await supabase
+        .from('user_profiles')
+        .update({
+          organization_id: orgData.id,
+          role: role, // Primeiro usuário é admin
+        })
+        .eq('id', data.user.id);
+
+      if (profileError) {
+        console.error('Erro ao atualizar perfil com organização:', profileError);
+        // Não falhar completamente, mas logar o erro
+      }
+    }
+
     return data;
   },
 
@@ -113,5 +156,101 @@ export const authService = {
     return supabase.auth.onAuthStateChange((event, session) => {
       callback(event, session);
     });
+  },
+
+  // Criar novo usuário (apenas para admins)
+  async createUser(
+    email: string,
+    password: string,
+    fullName: string,
+    role: UserRole,
+    organizationId: string
+  ) {
+    // Verificar se o usuário já existe
+    const { data: rpcData, error: rpcError } = await supabase.rpc('create_team_user', {
+      p_email: email.trim().toLowerCase(),
+      p_password: password,
+      p_full_name: fullName,
+      p_role: role,
+      p_organization_id: organizationId,
+    });
+
+    if (rpcError) throw rpcError;
+
+    // Se o usuário não existe, criar via signUp
+    if (rpcData?.requires_signup) {
+      // Criar usuário via signUp (isso cria no auth.users)
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim().toLowerCase(),
+        password: password,
+        options: {
+          data: {
+            full_name: fullName,
+            role: role,
+          },
+        },
+      });
+
+      if (signUpError) throw signUpError;
+
+      // Aguardar trigger criar o perfil
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Atualizar perfil com organization_id e role
+      if (signUpData.user) {
+        const { error: profileError } = await supabase
+          .from('user_profiles')
+          .update({
+            organization_id: organizationId,
+            role: role,
+            full_name: fullName,
+          })
+          .eq('id', signUpData.user.id);
+
+        if (profileError) {
+          console.error('Erro ao atualizar perfil:', profileError);
+          throw new Error('Erro ao atualizar perfil do usuário');
+        }
+      }
+
+      return { success: true, user: signUpData.user };
+    }
+
+    return rpcData;
+  },
+
+  // Remover usuário da organização (apenas para admins)
+  async removeUser(userId: string, organizationId: string) {
+    // Verificar se o usuário pertence à organização
+    const { data: userProfile, error: checkError } = await supabase
+      .from('user_profiles')
+      .select('id, organization_id, role')
+      .eq('id', userId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (checkError || !userProfile) {
+      throw new Error('Usuário não encontrado na organização');
+    }
+
+    // Não permitir remover o último admin da organização
+    const { count } = await supabase
+      .from('user_profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+      .eq('role', UserRole.ADMIN);
+
+    if (userProfile.role === UserRole.ADMIN && count && count <= 1) {
+      throw new Error('Não é possível remover o último administrador da organização');
+    }
+
+    // Usar função RPC para remover usuário
+    const { data, error } = await supabase.rpc('remove_team_user', {
+      p_user_id: userId,
+      p_organization_id: organizationId,
+    });
+
+    if (error) throw error;
+    return data;
   },
 };
