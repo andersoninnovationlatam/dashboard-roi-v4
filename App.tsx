@@ -11,6 +11,17 @@ import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Reports from './pages/Reports';
 import TeamManagement from './pages/TeamManagement';
+import { UserRole } from './types';
+
+const ProtectedAdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { profile } = useAuth();
+  
+  if (profile?.role !== UserRole.ADMIN) {
+    return <Navigate to="/" replace />;
+  }
+  
+  return <>{children}</>;
+};
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
@@ -97,7 +108,14 @@ const AppContent: React.FC = () => {
               <Route path="/projects/new" element={<ProjectCreate />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="/reports" element={<Reports />} />
-              <Route path="/team" element={<TeamManagement />} />
+              <Route 
+                path="/team" 
+                element={
+                  <ProtectedAdminRoute>
+                    <TeamManagement />
+                  </ProtectedAdminRoute>
+                } 
+              />
               <Route path="/settings" element={<Settings theme={theme} toggleTheme={toggleTheme} />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
