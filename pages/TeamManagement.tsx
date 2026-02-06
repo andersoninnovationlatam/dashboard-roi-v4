@@ -113,46 +113,65 @@ const TeamManagement: React.FC = () => {
       const existingUser = users.find((u: any) => u.email === normalizedEmail);
 
       if (!existingUser) {
-        // 4️⃣ Criar usuário no Auth com senha temporária
-        const passwordTemp = Math.random().toString(36).slice(-8);
+        // 4️⃣ Criar usuário no Auth com senha gerada
+        // Gerar senha mais forte: letras minúsculas + maiúsculas + números + caracteres especiais
+        const randomLower = Math.random().toString(36).slice(-4);
+        const randomUpper = Math.random().toString(36).slice(-4).toUpperCase();
+        const randomNum = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+        const specialChars = '!@#';
+        const randomSpecial = specialChars[Math.floor(Math.random() * specialChars.length)];
+        const passwordTemp = randomLower + randomUpper + randomNum + randomSpecial;
+
         const { error: createError } = await supabaseAdmin.auth.admin.createUser({
           email: normalizedEmail,
           password: passwordTemp,
-          email_confirm: false, // usuário confirmará com o convite
+          email_confirm: true, // Confirmar email automaticamente
         });
         if (createError) throw createError;
+
+        // 5️⃣ Chamar RPC para adicionar no user_profiles
+        const { error: rpcError } = await supabase.rpc('add_team_member', {
+          p_email: normalizedEmail,
+          p_organization_id: profile?.organization_id,
+          p_role: role,
+          p_full_name: fullName.trim() || null,
+        });
+        if (rpcError) throw rpcError;
+
+        // 6️⃣ Enviar e-mail com credenciais via Edge Function
+        const res = await fetch(`${supabaseUrl}/functions/v1/send-welcome-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            to: normalizedEmail,
+            type: 'welcome',
+            organizationName: organizationName || 'ROI Analytics',
+            fullName: fullName,
+            password: passwordTemp, // Enviar a senha gerada
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Erro ao enviar e-mail');
+        }
+
+        showToast('Usuário adicionado e credenciais enviadas por e-mail', 'success');
+      } else {
+        // Se usuário já existe, apenas adicionar ao time
+        const { error: rpcError } = await supabase.rpc('add_team_member', {
+          p_email: normalizedEmail,
+          p_organization_id: profile?.organization_id,
+          p_role: role,
+          p_full_name: fullName.trim() || null,
+        });
+        if (rpcError) throw rpcError;
+
+        showToast('Usuário já existe. Adicionado à equipe.', 'info');
       }
-
-      // 5️⃣ Chamar RPC para adicionar no user_profiles
-      const { error: rpcError } = await supabase.rpc('add_team_member', {
-        p_email: normalizedEmail,
-        p_organization_id: profile?.organization_id,
-        p_role: role,
-        p_full_name: fullName.trim() || null,
-      });
-      if (rpcError) throw rpcError;
-
-      // 6️⃣ Enviar e-mail de convite via Edge Function
-      const res = await fetch(`${supabaseUrl}/functions/v1/send-welcome-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          to: normalizedEmail,
-          type: 'welcome',
-          organizationName: organizationName || 'ROI Analytics',
-          fullName: fullName,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Erro ao enviar e-mail');
-      }
-
-      showToast('Usuário adicionado e convite enviado', 'success');
       setEmail('');
       setFullName('');
       setRole(UserRole.VIEWER);
@@ -319,8 +338,8 @@ const TeamManagement: React.FC = () => {
               type="submit"
               disabled={adding}
               className={`px-6 py-2 font-bold rounded transition-colors ${adding
-                  ? 'bg-amber-500 dark:bg-amber-600 text-white cursor-wait'
-                  : 'bg-indigo-600 dark:bg-indigo-500 text-white hover:bg-indigo-700 dark:hover:bg-indigo-600'
+                ? 'bg-amber-500 dark:bg-amber-600 text-white cursor-wait'
+                : 'bg-indigo-600 dark:bg-indigo-500 text-white hover:bg-indigo-700 dark:hover:bg-indigo-600'
                 }`}
             >
               {adding ? (
