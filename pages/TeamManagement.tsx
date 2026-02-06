@@ -271,7 +271,7 @@ const TeamManagement: React.FC = () => {
         {canManage && (
           <form
             onSubmit={handleAddMember}
-            className="bg-white dark:bg-slate-900 p-6 rounded-xl border space-y-4"
+            className="bg-white dark:bg-slate-900 p-6 rounded-xl border space-y-4 border-slate-100 dark:border-slate-800"
           >
             <div className='flex gap-4'>
               <div className="flex-1">
@@ -280,7 +280,7 @@ const TeamManagement: React.FC = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full mt-1 p-2 border rounded text-black dark:text-black"
+                  className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                   required
                 />
               </div>
@@ -290,7 +290,7 @@ const TeamManagement: React.FC = () => {
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full mt-1 p-2 border rounded text-black dark:text-black"
+                  className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                   required
                 />
               </div>
@@ -301,7 +301,7 @@ const TeamManagement: React.FC = () => {
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as UserRole)}
-                className="w-full mt-1 p-2 border rounded text-black dark:text-black"
+                className="w-full mt-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value={UserRole.VIEWER}>Visualizador</option>
                 <option value={UserRole.ANALYST}>Analista</option>
@@ -325,16 +325,16 @@ const TeamManagement: React.FC = () => {
           </form>
         )}
 
-        <div className="bg-white dark:bg-slate-900 rounded-xl border overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border overflow-hidden border-slate-100 dark:border-slate-800">
           <table className="w-full">
-            <thead className="bg-slate-100">
+            <thead className="bg-slate-100 dark:bg-slate-800">
               <tr>
-                <th className="p-3 text-left text-black dark:text-black">Nome</th>
-                <th className="p-3 text-left text-black dark:text-black">E-mail</th>
-                <th className="p-3 text-left text-black dark:text-black">Função</th>
-                <th className="p-3 text-left text-black dark:text-black">Entrada</th>
+                <th className="p-3 text-left text-slate-900 dark:text-slate-100">Nome</th>
+                <th className="p-3 text-left text-slate-900 dark:text-slate-100">E-mail</th>
+                <th className="p-3 text-left text-slate-900 dark:text-slate-100">Função</th>
+                <th className="p-3 text-left text-slate-900 dark:text-slate-100">Entrada</th>
                 {canManage && (
-                  <th className="p-3 text-left text-black dark:text-black">Ações</th>
+                  <th className="p-3 text-left text-slate-900 dark:text-slate-100">Ações</th>
                 )}
               </tr>
             </thead>
