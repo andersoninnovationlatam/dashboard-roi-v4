@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
-import { UserProfile } from '../services/authService';
+import { UserProfile, authService } from '../services/authService';
 import { UserRole } from '../types';
 import { useToast } from '../hooks/useToast';
 import ToastContainer from '../components/ToastContainer';
@@ -13,8 +13,11 @@ const TeamManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [addingMember, setAddingMember] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberName, setNewMemberName] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<UserRole>(UserRole.VIEWER);
   const [organizationName, setOrganizationName] = useState('');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     if (profile?.organization_id) {
@@ -75,15 +78,19 @@ const TeamManagement: React.FC = () => {
 
     try {
       setAddingMember(true);
+      const email = newMemberEmail.trim().toLowerCase();
 
       // Verificar se o usuário já existe na organização atual antes de chamar a função
       const { data: existingUser } = await supabase
         .from('user_profiles')
         .select('id, email, role, organization_id')
-        .eq('email', newMemberEmail.trim().toLowerCase())
-        .single();
+        .eq('email', email)
+        .maybeSingle();
 
-      let emailType: 'welcome' | 'role_change' = 'welcome';
+      let shouldSendWelcomeEmail = false;
+      let shouldSendRoleChangeEmail = false;
+      let oldRole: UserRole | undefined;
+      let isNewUser = false;
 
       // Se o usuário já existe na mesma organização com a mesma função, apenas informar
       if (existingUser && existingUser.organization_id === profile.organization_id) {
@@ -95,19 +102,19 @@ const TeamManagement: React.FC = () => {
           return;
         } else {
           // Apenas atualizar a função via UPDATE direto (mais simples)
+          oldRole = existingUser.role as UserRole;
           const { error: updateError } = await supabase
             .from('user_profiles')
             .update({ role: newMemberRole })
             .eq('id', existingUser.id);
 
           if (updateError) throw updateError;
-          emailType = 'role_change';
-          showToast('Função do membro atualizada com sucesso', 'success');
+          shouldSendRoleChangeEmail = true;
         }
       } else {
         // Usar função stored procedure para adicionar/atualizar membro
         const { data: rpcResult, error: rpcError } = await supabase.rpc('add_team_member', {
-          p_email: newMemberEmail.trim().toLowerCase(),
+          p_email: email,
           p_organization_id: profile.organization_id,
           p_role: newMemberRole,
         });
@@ -131,41 +138,59 @@ const TeamManagement: React.FC = () => {
           throw rpcError;
         }
 
-        const result = rpcResult as { success: boolean; type: 'existing_user' };
+        const result = rpcResult as { success: boolean; type: 'existing_user' | 'new_user' };
         // A função retorna 'existing_user' quando atualiza um usuário existente
-        emailType = result.type === 'existing_user' ? 'role_change' : 'welcome';
+        isNewUser = result.type !== 'existing_user';
+
+        if (isNewUser) {
+          shouldSendWelcomeEmail = true;
+        } else {
+          // Se é usuário existente mas de outra organização, buscar role antiga
+          if (existingUser) {
+            oldRole = existingUser.role as UserRole;
+          }
+          shouldSendRoleChangeEmail = true;
+        }
       }
 
-      // Enviar e-mail via API
-      try {
-        const response = await fetch('/api/send-email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            to: newMemberEmail.trim().toLowerCase(),
-            type: emailType,
-            organizationName: organizationName || 'sua organização',
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('Erro ao enviar e-mail:', errorData);
-          // Não falhar a operação se o e-mail falhar
-          showToast('Membro adicionado, mas houve erro ao enviar e-mail', 'warning');
-        } else {
-          showToast(
-            emailType === 'welcome'
-              ? 'Membro adicionado e e-mail de boas-vindas enviado'
-              : 'E-mail de troca de função enviado',
-            'success'
-          );
+      // Se for um novo usuário, gerar token de reset de senha
+      if (isNewUser && shouldSendWelcomeEmail) {
+        try {
+          await authService.resetPassword(email);
+        } catch (resetError: any) {
+          // Se o usuário não existe no auth ainda, não é erro crítico
+          // O token será gerado quando ele se cadastrar
+          console.warn('Não foi possível gerar token de reset (usuário pode não estar no auth ainda):', resetError);
         }
-      } catch (emailError) {
-        console.error('Erro ao enviar e-mail:', emailError);
-        showToast('Membro adicionado, mas houve erro ao enviar e-mail', 'warning');
+      }
+
+      // Enviar e-mail via Edge Function
+      if (shouldSendWelcomeEmail) {
+        try {
+          await sendEmail({
+            to: email,
+            type: 'welcome',
+            organizationName: organizationName || 'sua organização',
+          });
+          showToast('Membro adicionado e e-mail de boas-vindas enviado', 'success');
+        } catch (emailError: any) {
+          console.error('Erro ao enviar e-mail de boas-vindas:', emailError);
+          showToast('Membro adicionado, mas houve erro ao enviar e-mail', 'warning');
+        }
+      } else if (shouldSendRoleChangeEmail && oldRole) {
+        try {
+          await sendEmail({
+            to: email,
+            type: 'role_change',
+            organizationName: organizationName || 'sua organização',
+            oldRole: getRoleLabel(oldRole),
+            newRole: getRoleLabel(newMemberRole),
+          });
+          showToast('Função atualizada e e-mail enviado', 'success');
+        } catch (emailError: any) {
+          console.error('Erro ao enviar e-mail de mudança de função:', emailError);
+          showToast('Função atualizada, mas houve erro ao enviar e-mail', 'warning');
+        }
       }
 
       // Recarregar lista
@@ -180,8 +205,105 @@ const TeamManagement: React.FC = () => {
     }
   };
 
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile?.organization_id) {
+      showToast('Organização não encontrada', 'error');
+      return;
+    }
+
+    if (!newMemberEmail.trim() || !newMemberName.trim()) {
+      showToast('Por favor, preencha todos os campos', 'error');
+      return;
+    }
+
+    try {
+      setAddingMember(true);
+      const email = newMemberEmail.trim().toLowerCase();
+      const fullName = newMemberName.trim();
+
+      // Gerar senha temporária (será alterada via reset password)
+      const tempPassword = `Temp${Math.random().toString(36).slice(-8)}!`;
+
+      // Criar usuário via authService.createUser (que usa create_team_user RPC)
+      await authService.createUser(
+        email,
+        tempPassword,
+        fullName,
+        newMemberRole,
+        profile.organization_id
+      );
+
+      // Gerar token de reset de senha para o novo usuário
+      try {
+        await authService.resetPassword(email);
+      } catch (resetError: any) {
+        console.warn('Não foi possível gerar token de reset:', resetError);
+      }
+
+      // Enviar e-mail de boas-vindas via Edge Function
+      try {
+        await sendEmail({
+          to: email,
+          type: 'welcome',
+          organizationName: organizationName || 'sua organização',
+        });
+        showToast('Usuário criado com sucesso. E-mail de boas-vindas enviado.', 'success');
+      } catch (emailError: any) {
+        console.error('Erro ao enviar e-mail de boas-vindas:', emailError);
+        showToast('Usuário criado com sucesso, mas houve erro ao enviar e-mail', 'warning');
+      }
+
+      await loadMembers();
+      setNewMemberEmail('');
+      setNewMemberName('');
+      setNewMemberRole(UserRole.VIEWER);
+      setShowCreateForm(false);
+    } catch (error: any) {
+      console.error('Erro ao criar usuário:', error);
+      showToast(error.message || 'Erro ao criar usuário', 'error');
+    } finally {
+      setAddingMember(false);
+    }
+  };
+
+  const handleRemoveUser = async (userId: string) => {
+    if (!profile?.organization_id) {
+      showToast('Organização não encontrada', 'error');
+      return;
+    }
+
+    if (!confirm('Tem certeza que deseja remover este usuário da organização?')) {
+      return;
+    }
+
+    try {
+      setRemovingUserId(userId);
+      await authService.removeUser(userId, profile.organization_id);
+      showToast('Usuário removido com sucesso', 'success');
+      await loadMembers();
+    } catch (error: any) {
+      showToast(error.message || 'Erro ao remover usuário', 'error');
+    } finally {
+      setRemovingUserId(null);
+    }
+  };
+
   const handleUpdateRole = async (memberId: string, newRole: UserRole) => {
     try {
+      const member = members.find((m) => m.id === memberId);
+      if (!member) {
+        showToast('Membro não encontrado', 'error');
+        return;
+      }
+
+      const oldRole = member.role as UserRole;
+
+      // Se a função não mudou, não fazer nada
+      if (oldRole === newRole) {
+        return;
+      }
+
       const { error } = await supabase
         .from('user_profiles')
         .update({ role: newRole })
@@ -189,31 +311,82 @@ const TeamManagement: React.FC = () => {
 
       if (error) throw error;
 
-      // Enviar e-mail de troca de função
-      const member = members.find((m) => m.id === memberId);
-      if (member) {
-        try {
-          await fetch('/api/send-email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: member.email,
-              type: 'role_change',
-              organizationName: organizationName || 'sua organização',
-            }),
-          });
-        } catch (emailError) {
-          console.error('Erro ao enviar e-mail:', emailError);
-        }
+      // Enviar e-mail de troca de função via Edge Function
+      try {
+        await sendEmail({
+          to: member.email,
+          type: 'role_change',
+          organizationName: organizationName || 'sua organização',
+          oldRole: getRoleLabel(oldRole),
+          newRole: getRoleLabel(newRole),
+        });
+        showToast('Função atualizada e e-mail enviado', 'success');
+      } catch (emailError: any) {
+        console.error('Erro ao enviar e-mail de mudança de função:', emailError);
+        showToast('Função atualizada, mas houve erro ao enviar e-mail', 'warning');
       }
 
-      showToast('Função atualizada com sucesso', 'success');
       await loadMembers();
     } catch (error: any) {
       console.error('Erro ao atualizar função:', error);
       showToast(error.message || 'Erro ao atualizar função', 'error');
+    }
+  };
+
+  const sendEmail = async (payload: {
+    to: string;
+    type: 'welcome' | 'role_change';
+    organizationName?: string;
+    oldRole?: string;
+    newRole?: string;
+  }) => {
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        console.error('Erro ao obter sessão:', sessionError);
+        throw new Error('Erro ao obter sessão do usuário');
+      }
+
+      if (!session?.access_token) {
+        console.error('Token de acesso não encontrado na sessão');
+        throw new Error('Sessão não encontrada. Faça login novamente.');
+      }
+
+      const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) {
+        console.error('VITE_SUPABASE_URL não configurada');
+        throw new Error('Configuração do Supabase não encontrada');
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/send-welcome-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
+        console.error('Erro na resposta da Edge Function:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData,
+        });
+        throw new Error(errorData.message || `Erro ao enviar e-mail: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error: any) {
+      console.error('Erro ao enviar e-mail via Edge Function:', {
+        error: error.message,
+        stack: error.stack,
+        payload,
+      });
+      throw error;
     }
   };
 
@@ -238,6 +411,7 @@ const TeamManagement: React.FC = () => {
   };
 
   const canManageTeam = profile?.role === UserRole.ADMIN || profile?.role === UserRole.MANAGER;
+  const isAdmin = profile?.role === UserRole.ADMIN;
 
   if (loading) {
     return (
@@ -270,21 +444,54 @@ const TeamManagement: React.FC = () => {
 
         {canManageTeam && (
           <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Adicionar Novo Membro</h2>
-            <form onSubmit={handleAddMember} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
-                    E-mail
-                  </label>
-                  <input
-                    type="email"
-                    value={newMemberEmail}
-                    onChange={(e) => setNewMemberEmail(e.target.value)}
-                    placeholder="exemplo@empresa.com"
-                    className="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    required
-                  />
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                {showCreateForm ? 'Criar Novo Usuário' : 'Adicionar Membro Existente'}
+              </h2>
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    setShowCreateForm(!showCreateForm);
+                    setNewMemberEmail('');
+                    setNewMemberName('');
+                    setNewMemberRole(UserRole.VIEWER);
+                  }}
+                  className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 font-bold"
+                >
+                  {showCreateForm ? 'Adicionar Existente' : 'Criar Novo Usuário'}
+                </button>
+              )}
+            </div>
+
+            {showCreateForm && isAdmin ? (
+              <form onSubmit={handleCreateUser} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                      Nome Completo
+                    </label>
+                    <input
+                      type="text"
+                      value={newMemberName}
+                      onChange={(e) => setNewMemberName(e.target.value)}
+                      placeholder="João Silva"
+                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                      E-mail
+                    </label>
+                    <input
+                      type="email"
+                      value={newMemberEmail}
+                      onChange={(e) => setNewMemberEmail(e.target.value)}
+                      placeholder="exemplo@empresa.com"
+                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
@@ -301,15 +508,60 @@ const TeamManagement: React.FC = () => {
                     <option value={UserRole.ADMIN}>Administrador</option>
                   </select>
                 </div>
-              </div>
-              <button
-                type="submit"
-                disabled={addingMember}
-                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {addingMember ? 'Adicionando...' : 'Adicionar Membro'}
-              </button>
-            </form>
+                <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4">
+                  <p className="text-sm text-indigo-800 dark:text-indigo-300">
+                    <strong>Nota:</strong> O usuário receberá um e-mail de boas-vindas com um link para definir sua senha inicial.
+                  </p>
+                </div>
+                <button
+                  type="submit"
+                  disabled={addingMember}
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {addingMember ? 'Criando...' : 'Criar Usuário'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleAddMember} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                      E-mail
+                    </label>
+                    <input
+                      type="email"
+                      value={newMemberEmail}
+                      onChange={(e) => setNewMemberEmail(e.target.value)}
+                      placeholder="exemplo@empresa.com"
+                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                      Função
+                    </label>
+                    <select
+                      value={newMemberRole}
+                      onChange={(e) => setNewMemberRole(e.target.value as UserRole)}
+                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    >
+                      <option value={UserRole.VIEWER}>Visualizador</option>
+                      <option value={UserRole.ANALYST}>Analista</option>
+                      <option value={UserRole.MANAGER}>Gerente</option>
+                      <option value={UserRole.ADMIN}>Administrador</option>
+                    </select>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={addingMember}
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {addingMember ? 'Adicionando...' : 'Adicionar Membro'}
+                </button>
+              </form>
+            )}
           </div>
         )}
 
@@ -384,16 +636,28 @@ const TeamManagement: React.FC = () => {
                       </td>
                       {canManageTeam && (
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <select
-                            value={member.role}
-                            onChange={(e) => handleUpdateRole(member.id, e.target.value as UserRole)}
-                            className="text-sm px-3 py-1 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                          >
-                            <option value={UserRole.VIEWER}>Visualizador</option>
-                            <option value={UserRole.ANALYST}>Analista</option>
-                            <option value={UserRole.MANAGER}>Gerente</option>
-                            <option value={UserRole.ADMIN}>Administrador</option>
-                          </select>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={member.role}
+                              onChange={(e) => handleUpdateRole(member.id, e.target.value as UserRole)}
+                              className="text-sm px-3 py-1 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                            >
+                              <option value={UserRole.VIEWER}>Visualizador</option>
+                              <option value={UserRole.ANALYST}>Analista</option>
+                              <option value={UserRole.MANAGER}>Gerente</option>
+                              <option value={UserRole.ADMIN}>Administrador</option>
+                            </select>
+                            {isAdmin && member.id !== profile?.id && (
+                              <button
+                                onClick={() => handleRemoveUser(member.id)}
+                                disabled={removingUserId === member.id}
+                                className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Remover usuário"
+                              >
+                                {removingUserId === member.id ? '...' : 'Remover'}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
