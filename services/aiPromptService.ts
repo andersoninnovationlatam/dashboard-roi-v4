@@ -1,4 +1,9 @@
 import { supabase } from './supabase';
+import { GoogleGenAI } from '@google/genai';
+import { projectService, indicatorService } from './projectService';
+import { calculateKPIStats, calculateIndicatorStats } from './dashboardService';
+import { Indicator } from '../types';
+import { DEVELOPMENT_LABELS } from '../constants';
 
 export interface AIPrompt {
     id: string;
@@ -268,5 +273,184 @@ export const aiPromptService = {
         }
 
         return data as AIPrompt;
+    },
+
+    // Gerar insight usando dados dos indicadores salvos no banco e prompt configurado
+    async generateInsight(): Promise<string> {
+        try {
+            // 1. Obter organização atual
+            const orgId = await getCurrentUserOrganizationId();
+            if (!orgId) {
+                throw new Error('Não foi possível obter a organização do usuário');
+            }
+
+            // 2. Buscar todos os projetos da organização
+            const projects = await projectService.getAll(orgId);
+
+            // 3. Buscar todos os indicadores dos projetos
+            const allIndicators: Indicator[] = [];
+            for (const project of projects) {
+                try {
+                    const indicators = await indicatorService.getByProjectId(project.id);
+                    allIndicators.push(...indicators);
+                } catch (error) {
+                    console.error(`Erro ao buscar indicadores do projeto ${project.id}:`, error);
+                }
+            }
+
+            // 4. Calcular estatísticas usando os dados dos indicadores
+            const stats = calculateKPIStats(projects, allIndicators);
+
+            // 5. Buscar o prompt configurado pelo admin
+            const promptTemplate = await this.getPrompt();
+
+            // 6. Substituir variáveis do prompt com dados reais dos indicadores
+            const finalPrompt = promptTemplate
+                .replace('{roi_total}', stats.roi_total.toString())
+                .replace('{economia_anual}', stats.economia_anual.toLocaleString('pt-BR'))
+                .replace('{horas_economizadas_ano}', stats.horas_economizadas_ano.toLocaleString('pt-BR'))
+                .replace('{projetos_producao}', stats.projetos_producao.toString())
+                .replace('{payback_medio}', stats.payback_medio.toString())
+                // Variáveis adicionais que podem estar no prompt
+                .replace('{projetos_concluidos}', stats.projetos_concluidos.toString())
+                .replace('{horas_baseline_ano}', stats.horas_baseline_ano?.toLocaleString('pt-BR') || '0')
+                .replace('{horas_posia_ano}', stats.horas_posia_ano?.toLocaleString('pt-BR') || '0')
+                .replace('{custo_mo_baseline}', stats.custo_mo_baseline?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || 'R$ 0')
+                .replace('{custo_mo_posia}', stats.custo_mo_posia?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || 'R$ 0')
+                .replace('{economia_mo}', stats.economia_mo?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || 'R$ 0')
+                .replace('{custo_ia_anual}', stats.custo_ia_anual?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || 'R$ 0')
+                .replace('{economia_liquida}', stats.economia_liquida?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || 'R$ 0')
+                .replace('{roi_calculado}', stats.roi_calculado?.toString() || '0')
+                .replace('{payback_calculado}', stats.payback_calculado?.toString() || '0');
+
+            // 7. Verificar se a API key está configurada
+            const apiKey = process.env.API_KEY;
+            if (!apiKey) {
+                throw new Error('API_KEY não configurada. Configure a variável de ambiente API_KEY com a chave do Gemini.');
+            }
+
+            // 8. Chamar a API do Gemini para gerar o insight
+            const ai = new GoogleGenAI({ apiKey });
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: finalPrompt,
+            });
+
+            // 9. Retornar o insight gerado
+            const insight = response.text || 'Insight não disponível no momento.';
+            console.log('Insight gerado com sucesso usando dados dos indicadores do banco');
+            return insight;
+        } catch (err) {
+            console.error('Erro ao gerar insight:', err);
+            if (err instanceof Error) {
+                throw new Error(`Erro ao gerar insight: ${err.message}`);
+            }
+            throw new Error('Erro desconhecido ao gerar insight');
+        }
+    },
+
+    // Gerar insight para um projeto específico usando dados dos indicadores salvos no banco
+    async generateProjectInsight(projectId: string): Promise<string> {
+        try {
+            // 1. Buscar o projeto específico do banco
+            const project = await projectService.getById(projectId);
+            if (!project) {
+                throw new Error('Projeto não encontrado');
+            }
+
+            // 2. Buscar todos os indicadores do projeto do banco
+            const projectIndicators = await indicatorService.getByProjectId(projectId);
+
+            // 3. Calcular estatísticas apenas deste projeto
+            const stats = calculateKPIStats([project], projectIndicators);
+
+            // Calcular economia anual específica do projeto
+            const annualEconomy = projectIndicators
+                .filter(ind => ind.is_active)
+                .reduce((acc, ind) => {
+                    const indicatorStats = calculateIndicatorStats(ind);
+                    return acc + indicatorStats.annualEconomy;
+                }, 0);
+
+            // 4. Buscar o prompt configurado pelo admin
+            const promptTemplate = await this.getPrompt();
+
+            // 5. Verificar se o prompt é genérico (dashboard) ou customizado
+            const isGenericPrompt = promptTemplate.includes('{roi_total}') ||
+                promptTemplate.includes('{economia_anual}') ||
+                promptTemplate.includes('{projetos_producao}');
+
+            let finalPrompt: string;
+
+            if (isGenericPrompt) {
+                // Se for prompt genérico do dashboard, usar prompt específico de projeto
+                finalPrompt = `Analise o projeto de IA específico:
+- Nome: {nome_projeto}
+- Tipo: {tipo_projeto}
+- Status: {status_projeto}
+- Economia Anual: R$ {economia_anual_projeto}
+- ROI do Projeto: {roi_projeto}%
+- Sponsor: {sponsor_projeto}
+- Indicadores ativos: {indicadores_ativos}
+- Horas economizadas: {horas_economizadas_projeto}h
+
+Gere um insight executivo curto e direto em Português sobre o valor deste projeto específico para o negócio.`;
+            } else {
+                // Se for prompt customizado, adaptar para o contexto do projeto
+                finalPrompt = promptTemplate + `\n\nContexto do projeto específico:
+- Nome: {nome_projeto}
+- Tipo: {tipo_projeto}
+- Status: {status_projeto}
+- Economia Anual: R$ {economia_anual_projeto}
+- ROI do Projeto: {roi_projeto}%
+- Sponsor: {sponsor_projeto}
+- Indicadores ativos: {indicadores_ativos}
+- Horas economizadas: {horas_economizadas_projeto}h`;
+            }
+
+            // 6. Substituir variáveis específicas do projeto
+            const horasEconomizadas = stats.horas_economizadas_ano; // Já calculado apenas para este projeto
+            const indicadoresAtivos = projectIndicators.filter(ind => ind.is_active).length;
+
+            finalPrompt = finalPrompt
+                .replace('{nome_projeto}', project.name || 'Não informado')
+                .replace('{tipo_projeto}', DEVELOPMENT_LABELS[project.development_type] || 'Não informado')
+                .replace('{status_projeto}', project.status || 'Não informado')
+                .replace('{economia_anual_projeto}', annualEconomy.toLocaleString('pt-BR'))
+                .replace('{roi_projeto}', (project.roi_percentage || stats.roi_total || 0).toString())
+                .replace('{sponsor_projeto}', project.sponsor || 'Não informado')
+                .replace('{indicadores_ativos}', indicadoresAtivos.toString())
+                .replace('{horas_economizadas_projeto}', horasEconomizadas.toLocaleString('pt-BR'))
+                // Também substituir variáveis do dashboard caso o admin tenha customizado o prompt
+                .replace('{roi_total}', (project.roi_percentage || stats.roi_total || 0).toString())
+                .replace('{economia_anual}', annualEconomy.toLocaleString('pt-BR'))
+                .replace('{horas_economizadas_ano}', horasEconomizadas.toLocaleString('pt-BR'))
+                .replace('{projetos_producao}', '1') // Apenas este projeto
+                .replace('{payback_medio}', stats.payback_medio.toString());
+
+            // 7. Verificar se a API key está configurada
+            const apiKey = process.env.API_KEY;
+            if (!apiKey) {
+                throw new Error('API_KEY não configurada. Configure a variável de ambiente API_KEY com a chave do Gemini.');
+            }
+
+            // 8. Chamar a API do Gemini para gerar o insight
+            const ai = new GoogleGenAI({ apiKey });
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: finalPrompt,
+            });
+
+            // 9. Retornar o insight gerado
+            const insight = response.text || 'Insight não disponível no momento.';
+            console.log('Insight de projeto gerado com sucesso usando dados dos indicadores do banco');
+            return insight;
+        } catch (err) {
+            console.error('Erro ao gerar insight de projeto:', err);
+            if (err instanceof Error) {
+                throw new Error(`Erro ao gerar insight de projeto: ${err.message}`);
+            }
+            throw new Error('Erro desconhecido ao gerar insight de projeto');
+        }
     },
 };
