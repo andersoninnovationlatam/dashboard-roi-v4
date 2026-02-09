@@ -1,0 +1,51 @@
+graph TB
+    subgraph Frontend["Frontend Layer"]
+        Pages["Pages<br/>(Rotas)"]
+        Components["Components<br/>(UI Reutilizáveis)"]
+        Contexts["Contexts<br/>(Estado Global)"]
+        Hooks["Hooks<br/>(Lógica Reutilizável)"]
+    end
+    
+    subgraph Services["Service Layer"]
+        ProjectService["projectService<br/>(CRUD Projetos)"]
+        IndicatorService["indicatorService<br/>(CRUD Indicadores)"]
+        DashboardService["dashboardService<br/>(Cálculos ROI)"]
+        AuthService["authService<br/>(Autenticação)"]
+        AIPromptService["aiPromptService<br/>(Insights IA)"]
+    end
+    
+    subgraph Data["Data Layer"]
+        SupabaseClient["Supabase Client<br/>(PostgreSQL + Auth)"]
+        Types["Types<br/>(TypeScript)"]
+        MockData["Mock Data<br/>(Desenvolvimento)"]
+    end
+    
+    subgraph External["External Services"]
+        SupabaseDB["Supabase<br/>(Database + Auth)"]
+        GeminiAPI["Google Gemini API<br/>(IA)"]
+        ResendAPI["Resend<br/>(Email)"]
+    end
+    
+    Pages --> ProjectService
+    Pages --> IndicatorService
+    Pages --> DashboardService
+    Pages --> AuthService
+    Pages --> AIPromptService
+    
+    Components --> Pages
+    Contexts --> Pages
+    Hooks --> Pages
+    
+    ProjectService --> SupabaseClient
+    IndicatorService --> SupabaseClient
+    DashboardService --> Types
+    AuthService --> SupabaseClient
+    AIPromptService --> SupabaseClient
+    AIPromptService --> GeminiAPI
+    
+    SupabaseClient --> SupabaseDB
+    SupabaseClient --> ResendAPI
+    
+    Types --> ProjectService
+    Types --> IndicatorService
+    Types --> DashboardService
