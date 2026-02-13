@@ -2041,8 +2041,43 @@ const ProjectDetail: React.FC = () => {
                           <div className="flex gap-12">
                             <div className="flex flex-col">
                               <span className="text-[9px] font-black uppercase text-slate-500">Melhoria Estimada</span>
-                              <span className={`text-xl font-black ${parseFloat(stats.improvementPct || '0') >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              <span className={`text-xl font-black ${(() => {
+                                if (ind.improvement_type === ImprovementType.CUSTOM) {
+                                  const value = parseFloat((stats as any).economyValue !== undefined ? (stats as any).economyValue : '0');
+                                  return value >= 0 ? 'text-green-400' : 'text-red-400';
+                                }
+                                const pct = parseFloat(stats.improvementPct || '0');
+                                return pct >= 0 ? 'text-green-400' : 'text-red-400';
+                              })()}`}>
                                 {(() => {
+                                  // Para indicadores CUSTOM, usar economyValue e economyUnit
+                                  if (ind.improvement_type === ImprovementType.CUSTOM) {
+                                    const economyValue = (stats as any).economyValue !== undefined
+                                      ? (stats as any).economyValue
+                                      : 0;
+                                    const economyUnit = (stats as any).economyUnit || 'unidades';
+
+                                    if (isNaN(economyValue)) {
+                                      if (economyUnit === '%') return '0%';
+                                      if (economyUnit === 'horas' || economyUnit === 'horas/mês') return '0 horas';
+                                      if (economyUnit === 'R$' || economyUnit.includes('R$')) return 'R$ 0,00';
+                                      return `0 ${economyUnit}`;
+                                    }
+
+                                    // Formatar baseado na unidade
+                                    if (economyUnit === '%') {
+                                      return `${economyValue >= 0 ? '+' : ''}${economyValue.toFixed(1)}%`;
+                                    } else if (economyUnit === 'horas' || economyUnit === 'horas/mês') {
+                                      return `${economyValue >= 0 ? '+' : ''}${economyValue.toFixed(1)} horas`;
+                                    } else if (economyUnit === 'R$' || economyUnit.includes('R$')) {
+                                      return `${economyValue >= 0 ? '+' : ''}R$ ${economyValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                    } else {
+                                      // Unidade personalizada
+                                      return `${economyValue >= 0 ? '+' : ''}${economyValue.toFixed(2)} ${economyUnit}`;
+                                    }
+                                  }
+
+                                  // Para outros tipos, usar porcentagem
                                   const pct = parseFloat(stats.improvementPct || '0');
                                   if (isNaN(pct)) return '0%';
                                   // Melhoria sempre positiva quando há redução de custo
