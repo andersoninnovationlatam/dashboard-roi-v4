@@ -111,15 +111,24 @@ export const calculateIndicatorStats = (ind: Indicator) => {
       break;
 
     case ImprovementType.RELATED_COSTS:
-      // Calcular custo anual baseado em tools com frequência
-      const relatedCostsAnnual = (ind.baseline.tools || []).reduce((acc, tool) => {
+      // Calcular custo anual baseline baseado em tools com frequência
+      const relatedCostsBaselineAnnual = (ind.baseline.tools || []).reduce((acc, tool) => {
         const freqQty = (tool as any).frequencyQuantity || 1;
         const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
         const multiplier = getFrequencyMultiplierAnnual(freqUnit);
         return acc + (tool.monthlyCost * freqQty * multiplier);
       }, 0);
-      monthlyEconomy = relatedCostsAnnual / 12; // Converter anual para mensal
-      improvementPct = relatedCostsAnnual > 0 ? "100" : "0";
+      // Calcular custo anual pós-IA baseado em tools com frequência
+      const relatedCostsPostIAAnnual = (ind.postIA.tools || []).reduce((acc, tool) => {
+        const freqQty = (tool as any).frequencyQuantity || 1;
+        const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
+        const multiplier = getFrequencyMultiplierAnnual(freqUnit);
+        return acc + (tool.monthlyCost * freqQty * multiplier);
+      }, 0);
+      // Economia = Baseline - Pós-IA
+      const relatedCostsEconomyAnnual = relatedCostsBaselineAnnual - relatedCostsPostIAAnnual;
+      monthlyEconomy = relatedCostsEconomyAnnual / 12; // Converter anual para mensal
+      improvementPct = relatedCostsBaselineAnnual > 0 ? (((relatedCostsBaselineAnnual - relatedCostsPostIAAnnual) / relatedCostsBaselineAnnual) * 100).toFixed(1) : "0";
       break;
 
     default:
@@ -266,11 +275,11 @@ const calculateIACostAnnual = (projects: Project[], indicators: Indicator[]): nu
   let totalCost = 0;
 
   // Apenas custos relacionados marcados como "com IA"
-  const projectIndicators = indicators.filter(ind => 
-    ind.is_active && 
+  const projectIndicators = indicators.filter(ind =>
+    ind.is_active &&
     ind.improvement_type === ImprovementType.RELATED_COSTS
   );
-  
+
   projectIndicators.forEach(ind => {
     (ind.baseline.tools || []).forEach(tool => {
       // Só considerar custos marcados como "com IA"
