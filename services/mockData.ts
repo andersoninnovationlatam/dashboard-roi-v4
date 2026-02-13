@@ -118,7 +118,8 @@ export const mockProjects: Project[] = [
     business_area: 'CX',
     sponsor: 'Maria Silva',
     roi_percentage: 380.5,
-    total_economy_annual: 456000
+    total_economy_annual: 456000,
+    created_at: '2024-01-15T00:00:00Z'
   },
   {
     id: '2',
@@ -133,7 +134,8 @@ export const mockProjects: Project[] = [
     business_area: 'Legal',
     sponsor: 'Ricardo Lima',
     roi_percentage: 120.0,
-    total_economy_annual: 150000
+    total_economy_annual: 150000,
+    created_at: '2024-06-01T00:00:00Z'
   },
   {
     id: '3',
@@ -149,7 +151,8 @@ export const mockProjects: Project[] = [
     business_area: 'Financeiro',
     sponsor: 'Ana Paula',
     roi_percentage: 540.2,
-    total_economy_annual: 280000
+    total_economy_annual: 280000,
+    created_at: '2023-10-01T00:00:00Z'
   }
 ];
 

@@ -47,6 +47,7 @@ const mapProjectFromDB = (row: ProjectRow): Project => ({
     sponsor: row.sponsor || undefined,
     roi_percentage: row.roi_percentage ? Number(row.roi_percentage) : undefined,
     total_economy_annual: row.total_economy_annual ? Number(row.total_economy_annual) : undefined,
+    created_at: row.created_at || undefined,
 });
 
 const mapIndicatorFromDB = (row: IndicatorRow): Indicator => ({
