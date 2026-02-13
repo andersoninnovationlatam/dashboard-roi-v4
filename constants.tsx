@@ -11,6 +11,7 @@ export const COLORS = {
   speed: '#FF9800',
   satisfaction: '#E91E63',
   related_costs: '#795548',
+  custom: '#9E9E9E',
   other: '#607D8B',
 };
 
@@ -23,7 +24,8 @@ export const IMPROVEMENT_LABELS: Record<string, string> = {
   decision_quality: 'Qualidade Decisão',
   speed: 'Velocidade',
   satisfaction: 'Satisfação',
-  related_costs: 'Custos Relacionados'
+  related_costs: 'Custos Relacionados',
+  custom: 'Personalizado',
   /*other: 'Outros'*/
 };
 
