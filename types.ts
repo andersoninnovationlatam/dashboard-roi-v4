@@ -67,6 +67,7 @@ export interface CustomConfig {
   direction: 'increase' | 'decrease';
   unitType: 'percentage' | 'currency' | 'time' | 'quantity' | 'custom';
   unitLabel?: string;
+  timeUnit?: FrequencyUnit; // Unidade de tempo (hora, dia, semana, mês, ano) quando unitType = 'time'
   hasFinancialImpact: boolean;
   unitCost?: number; // Custo por unidade (quando hasFinancialImpact = true)
   volume?: number; // Volume para cálculo de impacto financeiro

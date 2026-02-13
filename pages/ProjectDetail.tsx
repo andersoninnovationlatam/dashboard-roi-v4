@@ -424,7 +424,24 @@ const ProjectDetail: React.FC = () => {
         : customConfig.unitType === 'percentage'
           ? '%'
           : customConfig.unitType === 'time'
-            ? 'horas'
+            ? (() => {
+              // Mapear FrequencyUnit para label de exibição
+              const timeUnit = customConfig.timeUnit || FrequencyUnit.HOUR;
+              switch (timeUnit) {
+                case FrequencyUnit.HOUR:
+                  return 'horas';
+                case FrequencyUnit.DAY:
+                  return 'dias';
+                case FrequencyUnit.WEEK:
+                  return 'semanas';
+                case FrequencyUnit.MONTH:
+                  return 'meses';
+                case FrequencyUnit.YEAR:
+                  return 'anos';
+                default:
+                  return 'horas';
+              }
+            })()
             : customConfig.unitType === 'quantity'
               ? 'unidades'
               : customConfig.unitLabel || '';
@@ -997,10 +1014,12 @@ const ProjectDetail: React.FC = () => {
                             </div>
                           </div>
                           <div className="flex items-center gap-6">
-                            <div className="text-right">
-                              <p className="text-[10px] font-bold text-slate-400 uppercase">Impacto Anual</p>
-                              <p className="font-black text-green-500 dark:text-green-400 text-xl">R$ {stats.annualEconomy.toLocaleString()}</p>
-                            </div>
+                            {ind.improvement_type !== ImprovementType.CUSTOM && (
+                              <div className="text-right">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Impacto Anual</p>
+                                <p className="font-black text-green-500 dark:text-green-400 text-xl">R$ {stats.annualEconomy.toLocaleString()}</p>
+                              </div>
+                            )}
                             <button onClick={() => removeIndicator(idx)} className="text-slate-300 hover:text-red-500 transition-colors p-2">
                               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
@@ -1403,11 +1422,15 @@ const ProjectDetail: React.FC = () => {
                                           unitType: 'quantity',
                                           hasFinancialImpact: false
                                         };
+                                        // Se mudou para 'time' e não tem timeUnit, inicializar com HOUR
+                                        const updatedConfig = newUnitType === 'time' && !currentConfig.timeUnit
+                                          ? { ...currentConfig, unitType: newUnitType, timeUnit: FrequencyUnit.HOUR }
+                                          : { ...currentConfig, unitType: newUnitType };
                                         newArr[idx] = {
                                           ...newArr[idx],
                                           baseline: {
                                             ...newArr[idx].baseline,
-                                            customConfig: { ...currentConfig, unitType: newUnitType }
+                                            customConfig: updatedConfig
                                           }
                                         };
                                         setIndicators(newArr);
@@ -1421,6 +1444,42 @@ const ProjectDetail: React.FC = () => {
                                       <option value="custom">Personalizada</option>
                                     </select>
                                   </div>
+
+                                  {/* Unidade de Tempo (quando for Tempo) */}
+                                  {ind.baseline.customConfig?.unitType === 'time' && (
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-2">Unidade de Tempo</label>
+                                      <select
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-slate-200 dark:border-slate-700 text-sm font-bold"
+                                        value={ind.baseline.customConfig?.timeUnit || FrequencyUnit.HOUR}
+                                        onChange={async (e) => {
+                                          const newTimeUnit = e.target.value as FrequencyUnit;
+                                          const newArr = [...indicators];
+                                          const currentConfig = newArr[idx].baseline.customConfig || {
+                                            direction: 'decrease',
+                                            unitType: 'time',
+                                            hasFinancialImpact: false,
+                                            timeUnit: FrequencyUnit.HOUR
+                                          };
+                                          newArr[idx] = {
+                                            ...newArr[idx],
+                                            baseline: {
+                                              ...newArr[idx].baseline,
+                                              customConfig: { ...currentConfig, timeUnit: newTimeUnit }
+                                            }
+                                          };
+                                          setIndicators(newArr);
+                                          await saveIndicator(newArr[idx]);
+                                        }}
+                                      >
+                                        <option value={FrequencyUnit.HOUR}>Hora</option>
+                                        <option value={FrequencyUnit.DAY}>Dia</option>
+                                        <option value={FrequencyUnit.WEEK}>Semana</option>
+                                        <option value={FrequencyUnit.MONTH}>Mês</option>
+                                        <option value={FrequencyUnit.YEAR}>Ano</option>
+                                      </select>
+                                    </div>
+                                  )}
 
                                   {/* Nome da Unidade (quando for Personalizada) */}
                                   {ind.baseline.customConfig?.unitType === 'custom' && (
@@ -1984,7 +2043,24 @@ const ProjectDetail: React.FC = () => {
                                             : customConfig.unitType === 'percentage'
                                               ? '%'
                                               : customConfig.unitType === 'time'
-                                                ? 'horas'
+                                                ? (() => {
+                                                  // Mapear FrequencyUnit para label de exibição
+                                                  const timeUnit = customConfig.timeUnit || FrequencyUnit.HOUR;
+                                                  switch (timeUnit) {
+                                                    case FrequencyUnit.HOUR:
+                                                      return 'horas';
+                                                    case FrequencyUnit.DAY:
+                                                      return 'dias';
+                                                    case FrequencyUnit.WEEK:
+                                                      return 'semanas';
+                                                    case FrequencyUnit.MONTH:
+                                                      return 'meses';
+                                                    case FrequencyUnit.YEAR:
+                                                      return 'anos';
+                                                    default:
+                                                      return 'horas';
+                                                  }
+                                                })()
                                                 : customConfig.unitType === 'quantity'
                                                   ? 'unidades'
                                                   : customConfig.unitLabel || '';
@@ -2039,52 +2115,23 @@ const ProjectDetail: React.FC = () => {
 
                         <div className="bg-slate-950 p-6 flex justify-between items-center text-white">
                           <div className="flex gap-12">
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-black uppercase text-slate-500">Melhoria Estimada</span>
-                              <span className={`text-xl font-black ${(() => {
-                                if (ind.improvement_type === ImprovementType.CUSTOM) {
-                                  const value = parseFloat((stats as any).economyValue !== undefined ? (stats as any).economyValue : '0');
-                                  return value >= 0 ? 'text-green-400' : 'text-red-400';
-                                }
-                                const pct = parseFloat(stats.improvementPct || '0');
-                                return pct >= 0 ? 'text-green-400' : 'text-red-400';
-                              })()}`}>
-                                {(() => {
-                                  // Para indicadores CUSTOM, usar economyValue e economyUnit
-                                  if (ind.improvement_type === ImprovementType.CUSTOM) {
-                                    const economyValue = (stats as any).economyValue !== undefined
-                                      ? (stats as any).economyValue
-                                      : 0;
-                                    const economyUnit = (stats as any).economyUnit || 'unidades';
-
-                                    if (isNaN(economyValue)) {
-                                      if (economyUnit === '%') return '0%';
-                                      if (economyUnit === 'horas' || economyUnit === 'horas/mês') return '0 horas';
-                                      if (economyUnit === 'R$' || economyUnit.includes('R$')) return 'R$ 0,00';
-                                      return `0 ${economyUnit}`;
-                                    }
-
-                                    // Formatar baseado na unidade
-                                    if (economyUnit === '%') {
-                                      return `${economyValue >= 0 ? '+' : ''}${economyValue.toFixed(1)}%`;
-                                    } else if (economyUnit === 'horas' || economyUnit === 'horas/mês') {
-                                      return `${economyValue >= 0 ? '+' : ''}${economyValue.toFixed(1)} horas`;
-                                    } else if (economyUnit === 'R$' || economyUnit.includes('R$')) {
-                                      return `${economyValue >= 0 ? '+' : ''}R$ ${economyValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                                    } else {
-                                      // Unidade personalizada
-                                      return `${economyValue >= 0 ? '+' : ''}${economyValue.toFixed(2)} ${economyUnit}`;
-                                    }
-                                  }
-
-                                  // Para outros tipos, usar porcentagem
+                            {ind.improvement_type !== ImprovementType.CUSTOM && (
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-black uppercase text-slate-500">Melhoria Estimada</span>
+                                <span className={`text-xl font-black ${(() => {
                                   const pct = parseFloat(stats.improvementPct || '0');
-                                  if (isNaN(pct)) return '0%';
-                                  // Melhoria sempre positiva quando há redução de custo
-                                  return `${Math.abs(pct).toFixed(1)}%`;
-                                })()}
-                              </span>
-                            </div>
+                                  return pct >= 0 ? 'text-green-400' : 'text-red-400';
+                                })()}`}>
+                                  {(() => {
+                                    // Para outros tipos, usar porcentagem
+                                    const pct = parseFloat(stats.improvementPct || '0');
+                                    if (isNaN(pct)) return '0%';
+                                    // Melhoria sempre positiva quando há redução de custo
+                                    return `${Math.abs(pct).toFixed(1)}%`;
+                                  })()}
+                                </span>
+                              </div>
+                            )}
                             {ind.improvement_type !== ImprovementType.CUSTOM && (
                               <div className="flex flex-col border-l border-slate-800 pl-12">
                                 <span className="text-[9px] font-black uppercase text-slate-500">Economia Mensal</span>
