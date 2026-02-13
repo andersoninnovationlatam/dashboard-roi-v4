@@ -1,0 +1,41 @@
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant Service
+    participant Supabase
+    participant GeminiAPI
+    
+    Note over User,GeminiAPI: Fluxo de Criação de Projeto e Cálculo de ROI
+    
+    User->>Frontend: Cria novo projeto
+    Frontend->>Service: projectService.create()
+    Service->>Supabase: INSERT INTO projects
+    Supabase-->>Service: Project criado
+    Service-->>Frontend: Project object
+    Frontend-->>User: Projeto exibido
+    
+    User->>Frontend: Adiciona indicador
+    Frontend->>Service: indicatorService.create()
+    Service->>Supabase: INSERT INTO indicators
+    Supabase-->>Service: Indicator criado
+    Service-->>Frontend: Indicator object
+    
+    User->>Frontend: Visualiza dashboard
+    Frontend->>Service: dashboardService.getDashboardData()
+    Service->>Supabase: SELECT projects, indicators
+    Supabase-->>Service: Data
+    Service->>Service: calculateKPIStats()
+    Service->>Service: calculateIndicatorStats() para cada indicador
+    Service-->>Frontend: KPIStats + dados agregados
+    Frontend-->>User: Dashboard com KPIs
+    
+    User->>Frontend: Gera insight de IA
+    Frontend->>Service: aiPromptService.generateInsight()
+    Service->>Supabase: SELECT projects, indicators
+    Supabase-->>Service: Data
+    Service->>Service: calculateKPIStats()
+    Service->>Service: Substitui variáveis no prompt
+    Service->>GeminiAPI: generateContent(prompt)
+    GeminiAPI-->>Service: Insight gerado
+    Service-->>Frontend: Insight (markdown)
+    Frontend-->>User: Insight exibido

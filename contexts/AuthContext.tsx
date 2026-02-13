@@ -78,9 +78,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (data.user) {
       setUser(data.user);
       // Aguardar um pouco para o trigger executar e organização ser vinculada
-      setTimeout(async () => {
-        await loadProfile(data.user!.id);
-      }, 1500);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await loadProfile(data.user.id);
     }
   };
 

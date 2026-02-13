@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
                  <tr>
                    <td style="padding:8px 0;color:#64748b;font-size:14px;"><strong style="color:#334155;">Senha:</strong></td>
                    <td style="padding:8px 0;">
-                     <code style="background:#fff;padding:6px 12px;border-radius:4px;font-family:monospace;font-size:16px;color:#1e293b;font-weight:bold;letter-spacing:1px;border:1px solid #cbd5e1;">${password || 'N/A'}</code>
+                     <code style="background:#fff;padding:6px 12px;border-radius:4px;font-family:monospace;font-size:16px;color:#1e293b;font-weight:bold;letter-spacing:1px;border:1px solid #cbd5e1;">${password?.trim() || 'N/A'}</code>
                    </td>
                  </tr>
                </table>

@@ -1,0 +1,34 @@
+flowchart TD
+    Start([Usuário cria/edita Projeto]) --> AddIndicator[Adiciona Indicadores]
+    AddIndicator --> FillBaseline[Preenche dados Baseline]
+    FillBaseline --> FillPostIA[Preenche dados Pós-IA]
+    FillPostIA --> SelectType{Seleciona Tipo<br/>de Melhoria}
+    
+    SelectType -->|PRODUCTIVITY/SPEED| CalcProductivity[Custo Baseline -<br/>Custo Pós-IA]
+    SelectType -->|REVENUE_INCREASE| CalcRevenue[Receita Pós-IA -<br/>Receita Baseline]
+    SelectType -->|MARGIN_IMPROVEMENT| CalcMargin[Margem Pós-IA -<br/>Margem Baseline]
+    SelectType -->|RISK_REDUCTION| CalcRisk[Risco Baseline -<br/>Risco Pós-IA]
+    SelectType -->|SATISFACTION| CalcSatisfaction[Churn Baseline -<br/>Churn Pós-IA]
+    SelectType -->|RELATED_COSTS| CalcCosts[Redução de<br/>Custos Relacionados]
+    
+    CalcProductivity --> MonthlyEconomy[Economia Mensal]
+    CalcRevenue --> MonthlyEconomy
+    CalcMargin --> MonthlyEconomy
+    CalcRisk --> MonthlyEconomy
+    CalcSatisfaction --> MonthlyEconomy
+    CalcCosts --> MonthlyEconomy
+    
+    MonthlyEconomy --> AnnualEconomy[Economia Anual =<br/>Mensal × 12]
+    AnnualEconomy --> AggregateProject[Agrega indicadores<br/>do projeto]
+    AggregateProject --> CalcProjectROI[ROI Projeto =<br/>Economia - Investimento /<br/>Investimento × 100]
+    CalcProjectROI --> CalcPayback[Payback =<br/>Investimento /<br/>Economia Mensal]
+    
+    CalcPayback --> AggregateAll[Agrega todos os<br/>projetos]
+    AggregateAll --> CalcTotalROI[ROI Total =<br/>Média dos ROIs]
+    CalcTotalROI --> CalcTotalPayback[Payback Médio =<br/>Média dos Paybacks]
+    CalcTotalPayback --> CalcHours[Horas Economizadas =<br/>Horas Baseline -<br/>Horas Pós-IA]
+    CalcHours --> CalcMO[Economia MO =<br/>Custo MO Baseline -<br/>Custo MO Pós-IA]
+    CalcMO --> CalcIACost[Custo IA Anual =<br/>Soma custos marcados<br/>como isIACost]
+    CalcIACost --> CalcNet[Economia Líquida =<br/>Economia MO -<br/>Custo IA Anual]
+    CalcNet --> DisplayKPIs[Exibe KPIs no<br/>Dashboard]
+    DisplayKPIs --> End([Fim])

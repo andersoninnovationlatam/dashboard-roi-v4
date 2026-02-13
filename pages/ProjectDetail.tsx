@@ -295,15 +295,24 @@ const ProjectDetail: React.FC = () => {
         break;
 
       case ImprovementType.RELATED_COSTS:
-        // Calcular custo anual baseado em tools com frequência
-        const relatedCostsAnnual = (ind.baseline.tools || []).reduce((acc, tool) => {
+        // Calcular custo anual baseline baseado em tools com frequência
+        const relatedCostsBaselineAnnual = (ind.baseline.tools || []).reduce((acc, tool) => {
           const freqQty = (tool as any).frequencyQuantity || 1;
           const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
           const multiplier = getFrequencyMultiplier(freqUnit);
           return acc + (tool.monthlyCost * freqQty * multiplier);
         }, 0);
-        monthlyEconomy = relatedCostsAnnual / 12; // Converter anual para mensal
-        improvementPct = relatedCostsAnnual > 0 ? "100" : "0";
+        // Calcular custo anual pós-IA baseado em tools com frequência
+        const relatedCostsPostIAAnnual = (ind.postIA.tools || []).reduce((acc, tool) => {
+          const freqQty = (tool as any).frequencyQuantity || 1;
+          const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
+          const multiplier = getFrequencyMultiplier(freqUnit);
+          return acc + (tool.monthlyCost * freqQty * multiplier);
+        }, 0);
+        // Economia = Baseline - Pós-IA
+        const relatedCostsEconomyAnnual = relatedCostsBaselineAnnual - relatedCostsPostIAAnnual;
+        monthlyEconomy = relatedCostsEconomyAnnual / 12; // Converter anual para mensal
+        improvementPct = relatedCostsBaselineAnnual > 0 ? (((relatedCostsBaselineAnnual - relatedCostsPostIAAnnual) / relatedCostsBaselineAnnual) * 100).toFixed(1) : "0";
         break;
 
       default:
@@ -467,6 +476,18 @@ const ProjectDetail: React.FC = () => {
     }));
   };
 
+  const getRelatedCostsPostIA = (ind: Indicator): RelatedCost[] => {
+    if (!ind.postIA.tools) return [];
+    return ind.postIA.tools.map(tool => ({
+      id: tool.id,
+      name: tool.name,
+      cost: tool.monthlyCost,
+      frequencyQuantity: (tool as any).frequencyQuantity || 1,
+      frequencyUnit: (tool as any).frequencyUnit || FrequencyUnit.MONTH,
+      isIACost: (tool as any).isIACost ?? false,
+    }));
+  };
+
   const addRelatedCost = async (idx: number) => {
     const newArr = [...indicators];
     const newCost: RelatedCost = {
@@ -493,6 +514,32 @@ const ProjectDetail: React.FC = () => {
     await saveIndicator(newArr[idx]);
   };
 
+  const addRelatedCostPostIA = async (idx: number) => {
+    const newArr = [...indicators];
+    const newCost: RelatedCost = {
+      id: Date.now().toString(),
+      name: 'Novo Custo Pós-IA',
+      cost: 0,
+      frequencyQuantity: 1,
+      frequencyUnit: FrequencyUnit.MONTH,
+      isIACost: false,
+    };
+    if (!newArr[idx].postIA.tools) {
+      newArr[idx].postIA.tools = [];
+    }
+    newArr[idx].postIA.tools.push({
+      id: newCost.id,
+      name: newCost.name,
+      monthlyCost: newCost.cost,
+      otherCosts: newCost.frequencyQuantity,
+    } as any);
+    (newArr[idx].postIA.tools[newArr[idx].postIA.tools.length - 1] as any).frequencyQuantity = newCost.frequencyQuantity;
+    (newArr[idx].postIA.tools[newArr[idx].postIA.tools.length - 1] as any).frequencyUnit = newCost.frequencyUnit;
+    (newArr[idx].postIA.tools[newArr[idx].postIA.tools.length - 1] as any).isIACost = newCost.isIACost;
+    setIndicators(newArr);
+    await saveIndicator(newArr[idx]);
+  };
+
   const updateRelatedCost = async (idx: number, costIdx: number, field: keyof RelatedCost, value: any) => {
     const newArr = [...indicators];
     const tool = newArr[idx].baseline.tools?.[costIdx];
@@ -507,9 +554,30 @@ const ProjectDetail: React.FC = () => {
     await saveIndicator(newArr[idx]);
   };
 
+  const updateRelatedCostPostIA = async (idx: number, costIdx: number, field: keyof RelatedCost, value: any) => {
+    const newArr = [...indicators];
+    const tool = newArr[idx].postIA.tools?.[costIdx];
+    if (tool) {
+      if (field === 'name') tool.name = value;
+      if (field === 'cost') tool.monthlyCost = value;
+      if (field === 'frequencyQuantity') (tool as any).frequencyQuantity = value;
+      if (field === 'frequencyUnit') (tool as any).frequencyUnit = value;
+      if (field === 'isIACost') (tool as any).isIACost = value;
+    }
+    setIndicators(newArr);
+    await saveIndicator(newArr[idx]);
+  };
+
   const removeRelatedCost = async (idx: number, costIdx: number) => {
     const newArr = [...indicators];
     newArr[idx].baseline.tools = (newArr[idx].baseline.tools || []).filter((_, i) => i !== costIdx);
+    setIndicators(newArr);
+    await saveIndicator(newArr[idx]);
+  };
+
+  const removeRelatedCostPostIA = async (idx: number, costIdx: number) => {
+    const newArr = [...indicators];
+    newArr[idx].postIA.tools = (newArr[idx].postIA.tools || []).filter((_, i) => i !== costIdx);
     setIndicators(newArr);
     await saveIndicator(newArr[idx]);
   };
@@ -1120,70 +1188,139 @@ const ProjectDetail: React.FC = () => {
                           </div>
 
                           {/* Post-IA Section */}
-                          {ind.improvement_type !== ImprovementType.RELATED_COSTS && (
-                            <div className="space-y-6">
-                              <div className="flex items-center gap-2">
-                                <div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div>
-                                <h4 className="text-sm font-black uppercase text-indigo-500 tracking-widest">Estado Desejado (Pós-IA)</h4>
-                              </div>
+                          <div className="space-y-6">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div>
+                              <h4 className="text-sm font-black uppercase text-indigo-500 tracking-widest">Estado Desejado (Pós-IA)</h4>
+                            </div>
 
-                              {(ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) && (
-                                <div className="space-y-4">
-                                  {(ind.postIA.people || []).map((p, pIdx) => (
-                                    <div key={p.id} className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 relative">
-                                      <div className="flex justify-between items-center">
+                            {/* RELATED_COSTS Post-IA */}
+                            {ind.improvement_type === ImprovementType.RELATED_COSTS && (
+                              <div className="space-y-4">
+                                {getRelatedCostsPostIA(ind).map((cost, costIdx) => (
+                                  <div key={cost.id} className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 relative">
+                                    <div className="flex justify-between items-center">
+                                      <input
+                                        className="bg-transparent font-bold text-xs border-none focus:ring-0 w-full text-indigo-900 dark:text-indigo-200"
+                                        value={cost.name}
+                                        onChange={(e) => updateRelatedCostPostIA(idx, costIdx, 'name', e.target.value)}
+                                        placeholder="Nome do custo pós-IA"
+                                      />
+                                      <button onClick={() => removeRelatedCostPostIA(idx, costIdx)} className="text-indigo-300 hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Valor (R$)</label>
+                                      <input
+                                        type="number"
+                                        className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        value={cost.cost}
+                                        onChange={(e) => updateRelatedCostPostIA(idx, costIdx, 'cost', parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Frequência</label>
                                         <input
-                                          className="bg-transparent font-bold text-xs border-none focus:ring-0 w-full text-indigo-900 dark:text-indigo-200"
-                                          value={p.name}
-                                          onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'name', e.target.value)}
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={cost.frequencyQuantity}
+                                          onChange={(e) => updateRelatedCostPostIA(idx, costIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)}
                                         />
-                                        <span className="text-[10px] font-black text-green-500">
-                                          {((ind.baseline.people?.[pIdx]?.minutesSpent || 0) > p.minutesSpent) ? `-${(((ind.baseline.people?.[pIdx]?.minutesSpent || 0) - p.minutesSpent) / (ind.baseline.people?.[pIdx]?.minutesSpent || 1) * 100).toFixed(0)}% tempo` : ''}
-                                        </span>
                                       </div>
-                                      <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">R$/Hora</label>
-                                          <input
-                                            type="number"
-                                            className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            value={p.hourlyRate}
-                                            onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'hourlyRate', parseFloat(e.target.value) || 0)}
-                                          />
-                                        </div>
-                                        <div>
-                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Minutos (IA)</label>
-                                          <input
-                                            type="number"
-                                            className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            value={p.minutesSpent}
-                                            onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)}
-                                          />
-                                        </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Unidade</label>
+                                        <select
+                                          className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={cost.frequencyUnit}
+                                          onChange={(e) => updateRelatedCostPostIA(idx, costIdx, 'frequencyUnit', e.target.value as FrequencyUnit)}
+                                        >
+                                          <option value={FrequencyUnit.HOUR}>Hora</option>
+                                          <option value={FrequencyUnit.DAY}>Dia</option>
+                                          <option value={FrequencyUnit.WEEK}>Semana</option>
+                                          <option value={FrequencyUnit.MONTH}>Mês</option>
+                                          <option value={FrequencyUnit.QUARTER}>Trimestre</option>
+                                          <option value={FrequencyUnit.YEAR}>Ano</option>
+                                        </select>
                                       </div>
-                                      <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Frequência</label>
+                                    </div>
+                                    <div className="flex items-center gap-2 pt-2 border-t border-indigo-200 dark:border-indigo-800">
+                                      <input
+                                        type="checkbox"
+                                        id={`ia-cost-post-${cost.id}`}
+                                        className="w-4 h-4 rounded border-indigo-300 dark:border-indigo-600 text-indigo-600 focus:ring-indigo-500"
+                                        checked={cost.isIACost || false}
+                                        onChange={(e) => updateRelatedCostPostIA(idx, costIdx, 'isIACost', e.target.checked)}
+                                      />
+                                      <label htmlFor={`ia-cost-post-${cost.id}`} className="text-[9px] uppercase font-bold text-indigo-400 cursor-pointer">
+                                        Custo com IA
+                                      </label>
+                                    </div>
+                                  </div>
+                                ))}
+                                <button onClick={() => addRelatedCostPostIA(idx)} className="w-full py-3 border-2 border-dashed border-indigo-200 dark:border-indigo-800 rounded-xl text-[10px] font-bold text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors">+ Adicionar Novo Custo Pós-IA</button>
+                              </div>
+                            )}
+
+                            {ind.improvement_type !== ImprovementType.RELATED_COSTS && (
+                              <>
+
+                                {(ind.improvement_type === ImprovementType.PRODUCTIVITY || ind.improvement_type === ImprovementType.SPEED || ind.improvement_type === ImprovementType.DECISION_QUALITY) && (
+                                  <div className="space-y-4">
+                                    {(ind.postIA.people || []).map((p, pIdx) => (
+                                      <div key={p.id} className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 relative">
+                                        <div className="flex justify-between items-center">
                                           <input
-                                            type="number"
-                                            className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            value={p.frequencyQuantity}
-                                            onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)}
+                                            className="bg-transparent font-bold text-xs border-none focus:ring-0 w-full text-indigo-900 dark:text-indigo-200"
+                                            value={p.name}
+                                            onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'name', e.target.value)}
                                           />
+                                          <span className="text-[10px] font-black text-green-500">
+                                            {((ind.baseline.people?.[pIdx]?.minutesSpent || 0) > p.minutesSpent) ? `-${(((ind.baseline.people?.[pIdx]?.minutesSpent || 0) - p.minutesSpent) / (ind.baseline.people?.[pIdx]?.minutesSpent || 1) * 100).toFixed(0)}% tempo` : ''}
+                                          </span>
                                         </div>
-                                        <div>
-                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Unidade</label>
-                                          <select className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none" value={p.frequencyUnit} onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyUnit', e.target.value as FrequencyUnit)}>
-                                            <option value={FrequencyUnit.HOUR}>Hora</option>
-                                            <option value={FrequencyUnit.DAY}>Dia</option>
-                                            <option value={FrequencyUnit.WEEK}>Semana</option>
-                                            <option value={FrequencyUnit.MONTH}>Mês</option>
-                                            <option value={FrequencyUnit.QUARTER}>Trimestre</option>
-                                            <option value={FrequencyUnit.YEAR}>Ano</option>
-                                          </select>
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <div>
+                                            <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">R$/Hora</label>
+                                            <input
+                                              type="number"
+                                              className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                              value={p.hourlyRate}
+                                              onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'hourlyRate', parseFloat(e.target.value) || 0)}
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Minutos (IA)</label>
+                                            <input
+                                              type="number"
+                                              className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                              value={p.minutesSpent}
+                                              onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'minutesSpent', parseFloat(e.target.value) || 0)}
+                                            />
+                                          </div>
                                         </div>
-                                      </div>
-                                      {/*<div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <div>
+                                            <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Frequência</label>
+                                            <input
+                                              type="number"
+                                              className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                              value={p.frequencyQuantity}
+                                              onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyQuantity', parseFloat(e.target.value) || 0)}
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Unidade</label>
+                                            <select className="w-full bg-white dark:bg-slate-800 p-2 rounded border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none" value={p.frequencyUnit} onChange={(e) => updatePerson(idx, 'postIA', pIdx, 'frequencyUnit', e.target.value as FrequencyUnit)}>
+                                              <option value={FrequencyUnit.HOUR}>Hora</option>
+                                              <option value={FrequencyUnit.DAY}>Dia</option>
+                                              <option value={FrequencyUnit.WEEK}>Semana</option>
+                                              <option value={FrequencyUnit.MONTH}>Mês</option>
+                                              <option value={FrequencyUnit.QUARTER}>Trimestre</option>
+                                              <option value={FrequencyUnit.YEAR}>Ano</option>
+                                            </select>
+                                          </div>
+                                        </div>
+                                        {/*<div>
                                       <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-1">Multiplicador Anual</label>
                                       <input
                                         type="number"
@@ -1192,74 +1329,53 @@ const ProjectDetail: React.FC = () => {
                                         onChange={(e) => updateFrequencyMultiplier(p.frequencyUnit, parseFloat(e.target.value) || 1)}
                                       />
                                     </div>*/}
-                                    </div>
-                                  ))}
-                                  {ind.improvement_type === ImprovementType.DECISION_QUALITY && (
-                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 mt-4">
-                                      <div>
-                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Quantidade de Decisões/Mês com IA</label>
-                                        <input
-                                          type="number"
-                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                          value={ind.postIA.decisionCount || 0}
-                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'decisionCount', parseFloat(e.target.value) || 0)}
-                                        />
                                       </div>
-                                      <div>
-                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Precisão das Decisões com IA (%)</label>
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          max="100"
-                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                          value={ind.postIA.accuracyPct || 0}
-                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'accuracyPct', parseFloat(e.target.value) || 0)}
-                                        />
+                                    ))}
+                                    {ind.improvement_type === ImprovementType.DECISION_QUALITY && (
+                                      <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3 mt-4">
+                                        <div>
+                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Quantidade de Decisões/Mês com IA</label>
+                                          <input
+                                            type="number"
+                                            className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            value={ind.postIA.decisionCount || 0}
+                                            onChange={(e) => updateIndicatorData(idx, 'postIA', 'decisionCount', parseFloat(e.target.value) || 0)}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Precisão das Decisões com IA (%)</label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            value={ind.postIA.accuracyPct || 0}
+                                            onChange={(e) => updateIndicatorData(idx, 'postIA', 'accuracyPct', parseFloat(e.target.value) || 0)}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo por Erro com IA (R$)</label>
+                                          <input
+                                            type="number"
+                                            className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            value={ind.postIA.errorCost || 0}
+                                            onChange={(e) => updateIndicatorData(idx, 'postIA', 'errorCost', parseFloat(e.target.value) || 0)}
+                                          />
+                                        </div>
+                                        {ind.baseline.accuracyPct && ind.postIA.accuracyPct && (
+                                          <p className="text-[10px] font-black text-green-500 mt-2">
+                                            Melhoria na Precisão: +{((ind.postIA.accuracyPct - ind.baseline.accuracyPct) / ind.baseline.accuracyPct * 100).toFixed(1)}%
+                                          </p>
+                                        )}
                                       </div>
-                                      <div>
-                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo por Erro com IA (R$)</label>
-                                        <input
-                                          type="number"
-                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                          value={ind.postIA.errorCost || 0}
-                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'errorCost', parseFloat(e.target.value) || 0)}
-                                        />
-                                      </div>
-                                      {ind.baseline.accuracyPct && ind.postIA.accuracyPct && (
-                                        <p className="text-[10px] font-black text-green-500 mt-2">
-                                          Melhoria na Precisão: +{((ind.postIA.accuracyPct - ind.baseline.accuracyPct) / ind.baseline.accuracyPct * 100).toFixed(1)}%
-                                        </p>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* REVENUE_INCREASE Post-IA */}
-                              {ind.improvement_type === ImprovementType.REVENUE_INCREASE && (
-                                <div className="space-y-4">
-                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Mensal com IA (R$)</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.revenue || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
-                                    />
-                                    {ind.baseline.revenue && ind.postIA.revenue && (
-                                      <p className="text-[10px] font-black text-green-500 mt-2">
-                                        +{(((ind.postIA.revenue - ind.baseline.revenue) / ind.baseline.revenue) * 100).toFixed(1)}% receita
-                                      </p>
                                     )}
                                   </div>
-                                </div>
-                              )}
+                                )}
 
-                              {/* MARGIN_IMPROVEMENT Post-IA */}
-                              {ind.improvement_type === ImprovementType.MARGIN_IMPROVEMENT && (
-                                <div className="space-y-4">
-                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border-indigo-100 dark:border-indigo-900/30 space-y-3">
-                                    <div>
+                                {/* REVENUE_INCREASE Post-IA */}
+                                {ind.improvement_type === ImprovementType.REVENUE_INCREASE && (
+                                  <div className="space-y-4">
+                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                                       <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Mensal com IA (R$)</label>
                                       <input
                                         type="number"
@@ -1267,181 +1383,203 @@ const ProjectDetail: React.FC = () => {
                                         value={ind.postIA.revenue || 0}
                                         onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
                                       />
+                                      {ind.baseline.revenue && ind.postIA.revenue && (
+                                        <p className="text-[10px] font-black text-green-500 mt-2">
+                                          +{(((ind.postIA.revenue - ind.baseline.revenue) / ind.baseline.revenue) * 100).toFixed(1)}% receita
+                                        </p>
+                                      )}
                                     </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo Mensal com IA (R$)</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.cost || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    {ind.baseline.revenue && ind.baseline.cost && ind.postIA.revenue && ind.postIA.cost && (
-                                      <p className="text-[10px] font-black text-green-500 mt-2">
-                                        Margem: R$ {((ind.postIA.revenue - ind.postIA.cost) - (ind.baseline.revenue - ind.baseline.cost)).toLocaleString()}
-                                      </p>
-                                    )}
                                   </div>
-                                </div>
-                              )}
+                                )}
 
-                              {/* RISK_REDUCTION Post-IA */}
-                              {ind.improvement_type === ImprovementType.RISK_REDUCTION && (
-                                <div className="space-y-4">
-                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Probabilidade do Risco com IA (%)</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.probability || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'probability', parseFloat(e.target.value) || 0)}
-                                      />
+                                {/* MARGIN_IMPROVEMENT Post-IA */}
+                                {ind.improvement_type === ImprovementType.MARGIN_IMPROVEMENT && (
+                                  <div className="space-y-4">
+                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Mensal com IA (R$)</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.revenue || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo Mensal com IA (R$)</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.cost || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      {ind.baseline.revenue && ind.baseline.cost && ind.postIA.revenue && ind.postIA.cost && (
+                                        <p className="text-[10px] font-black text-green-500 mt-2">
+                                          Margem: R$ {((ind.postIA.revenue - ind.postIA.cost) - (ind.baseline.revenue - ind.baseline.cost)).toLocaleString()}
+                                        </p>
+                                      )}
                                     </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Impacto Financeiro com IA (R$)</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.impact || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'impact', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo de Mitigação Mensal com IA (R$)</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.mitigationCost || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'mitigationCost', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    {ind.baseline.probability && ind.baseline.impact && ind.postIA.probability && ind.postIA.impact && (
-                                      <p className="text-[10px] font-black text-green-500 mt-2">
-                                        Redução de Risco: {((((ind.baseline.probability / 100) * ind.baseline.impact) - ((ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0))) / ((ind.baseline.probability / 100) * ind.baseline.impact) * 100).toFixed(1)}%
-                                      </p>
-                                    )}
                                   </div>
-                                </div>
-                              )}
+                                )}
 
-                              {/* SATISFACTION Post-IA */}
-                              {ind.improvement_type === ImprovementType.SATISFACTION && (
-                                <div className="space-y-4">
-                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Taxa de Churn com IA (%)</label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.churnRate || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'churnRate', parseFloat(e.target.value) || 0)}
-                                      />
+                                {/* RISK_REDUCTION Post-IA */}
+                                {ind.improvement_type === ImprovementType.RISK_REDUCTION && (
+                                  <div className="space-y-4">
+                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Probabilidade do Risco com IA (%)</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="100"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.probability || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'probability', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Impacto Financeiro com IA (R$)</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.impact || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'impact', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo de Mitigação Mensal com IA (R$)</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.mitigationCost || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'mitigationCost', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      {ind.baseline.probability && ind.baseline.impact && ind.postIA.probability && ind.postIA.impact && (
+                                        <p className="text-[10px] font-black text-green-500 mt-2">
+                                          Redução de Risco: {((((ind.baseline.probability / 100) * ind.baseline.impact) - ((ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0))) / ((ind.baseline.probability / 100) * ind.baseline.impact) * 100).toFixed(1)}%
+                                        </p>
+                                      )}
                                     </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Número de Clientes com IA</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.clientCount || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'clientCount', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor por Cliente com IA (R$)</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.valuePerClient || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'valuePerClient', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Score NPS/CSAT com IA</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.score || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'score', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Adicional Mensal com IA (R$)</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.revenue || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    {ind.baseline.score && ind.postIA.score && (
-                                      <p className="text-[10px] font-black text-green-500 mt-2">
-                                        Melhoria no Score: +{((ind.postIA.score - ind.baseline.score) / ind.baseline.score * 100).toFixed(1)}%
-                                      </p>
-                                    )}
                                   </div>
-                                </div>
-                              )}
+                                )}
 
-                              {/* ANALYTICAL_CAPACITY Post-IA */}
-                              {ind.improvement_type === ImprovementType.ANALYTICAL_CAPACITY && (
-                                <div className="space-y-4">
-                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Volume de Análises/Mês com IA</label>
+                                {/* SATISFACTION Post-IA */}
+                                {ind.improvement_type === ImprovementType.SATISFACTION && (
+                                  <div className="space-y-4">
+                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Taxa de Churn com IA (%)</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="100"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.churnRate || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'churnRate', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Número de Clientes com IA</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.clientCount || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'clientCount', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor por Cliente com IA (R$)</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.valuePerClient || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'valuePerClient', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Score NPS/CSAT com IA</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.score || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'score', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Receita Adicional Mensal com IA (R$)</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.revenue || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'revenue', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      {ind.baseline.score && ind.postIA.score && (
+                                        <p className="text-[10px] font-black text-green-500 mt-2">
+                                          Melhoria no Score: +{((ind.postIA.score - ind.baseline.score) / ind.baseline.score * 100).toFixed(1)}%
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* ANALYTICAL_CAPACITY Post-IA */}
+                                {ind.improvement_type === ImprovementType.ANALYTICAL_CAPACITY && (
+                                  <div className="space-y-4">
+                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Volume de Análises/Mês com IA</label>
+                                        <input
+                                          required={true}
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.volume || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'volume', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo por Análise com IA (R$)</label>
+                                        <input
+                                          type="number"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.cost || 0}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
+                                        />
+                                      </div>
+                                      {ind.baseline.volume && ind.baseline.cost && ind.postIA.volume && ind.postIA.cost && (
+                                        <p className="text-[10px] font-black text-green-500 mt-2">
+                                          Economia: R$ {((ind.baseline.volume * ind.baseline.cost) - (ind.postIA.volume * ind.postIA.cost)).toLocaleString()}/mês
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+
+                                {/* OTHER Post-IA */}
+                                {ind.improvement_type === ImprovementType.OTHER && (
+                                  <div className="space-y-4">
+                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor Mensal com IA (R$)</label>
                                       <input
-                                        required={true}
                                         type="number"
                                         className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.volume || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'volume', parseFloat(e.target.value) || 0)}
+                                        value={ind.postIA.value || 0}
+                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'value', parseFloat(e.target.value) || 0)}
                                       />
+                                      {ind.baseline.value && ind.postIA.value && (
+                                        <p className="text-[10px] font-black text-green-500 mt-2">
+                                          Ganho: R$ {(ind.postIA.value - ind.baseline.value).toLocaleString()}/mês
+                                        </p>
+                                      )}
                                     </div>
-                                    <div>
-                                      <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Custo por Análise com IA (R$)</label>
-                                      <input
-                                        type="number"
-                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={ind.postIA.cost || 0}
-                                        onChange={(e) => updateIndicatorData(idx, 'postIA', 'cost', parseFloat(e.target.value) || 0)}
-                                      />
-                                    </div>
-                                    {ind.baseline.volume && ind.baseline.cost && ind.postIA.volume && ind.postIA.cost && (
-                                      <p className="text-[10px] font-black text-green-500 mt-2">
-                                        Economia: R$ {((ind.baseline.volume * ind.baseline.cost) - (ind.postIA.volume * ind.postIA.cost)).toLocaleString()}/mês
-                                      </p>
-                                    )}
                                   </div>
-                                </div>
-                              )}
-
-
-                              {/* OTHER Post-IA */}
-                              {ind.improvement_type === ImprovementType.OTHER && (
-                                <div className="space-y-4">
-                                  <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
-                                    <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor Mensal com IA (R$)</label>
-                                    <input
-                                      type="number"
-                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-black text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                      value={ind.postIA.value || 0}
-                                      onChange={(e) => updateIndicatorData(idx, 'postIA', 'value', parseFloat(e.target.value) || 0)}
-                                    />
-                                    {ind.baseline.value && ind.postIA.value && (
-                                      <p className="text-[10px] font-black text-green-500 mt-2">
-                                        Ganho: R$ {(ind.postIA.value - ind.baseline.value).toLocaleString()}/mês
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                                )}
+                              </>
+                            )}
+                          </div>
                         </div>
 
                         <div className="bg-slate-950 p-6 flex justify-between items-center text-white">
