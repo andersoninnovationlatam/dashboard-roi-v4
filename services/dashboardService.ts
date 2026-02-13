@@ -43,6 +43,37 @@ const IMPROVEMENT_TYPE_LABELS: Record<ImprovementType, { label: string; color: s
   [ImprovementType.OTHER]: { label: 'Outros', color: '#9E9E9E' },
 };
 
+// Função utilitária para converter frequência para mensal
+export const convertFrequencyToMonthly = (
+  frequencyQuantity: number,
+  frequencyUnit: FrequencyUnit,
+  customMultipliers?: Record<FrequencyUnit, number>
+): number => {
+  // Se multiplicadores customizados foram fornecidos (ex: do localStorage), usar eles
+  if (customMultipliers) {
+    const annualMultiplier = customMultipliers[frequencyUnit] || 1;
+    // Converter de anual para mensal
+    return (frequencyQuantity * annualMultiplier) / 12;
+  }
+
+  // Usar constantes padrão (business days)
+  switch (frequencyUnit) {
+    case FrequencyUnit.HOUR:
+      return frequencyQuantity * MONTH_HOURS_BUSINESS;
+    case FrequencyUnit.DAY:
+      return frequencyQuantity * MONTH_DAYS_BUSINESS;
+    case FrequencyUnit.WEEK:
+      return frequencyQuantity * WEEKS_PER_MONTH;
+    case FrequencyUnit.QUARTER:
+      return frequencyQuantity / 3;
+    case FrequencyUnit.YEAR:
+      return frequencyQuantity / 12;
+    case FrequencyUnit.MONTH:
+    default:
+      return frequencyQuantity;
+  }
+};
+
 // Função utilitária para calcular estatísticas de um indicador
 export const calculateIndicatorStats = (ind: Indicator) => {
   let monthlyEconomy = 0;
@@ -53,28 +84,7 @@ export const calculateIndicatorStats = (ind: Indicator) => {
   const calcPeopleCost = (people?: PersonInvolved[]) =>
     (people || []).reduce((acc, p) => {
       // Converter frequência para mensal usando dias úteis (business)
-      let monthlyFrequency = p.frequencyQuantity;
-      switch (p.frequencyUnit) {
-        case FrequencyUnit.HOUR:
-          // Hora de trabalho: multiplicar pelas horas úteis do mês
-          monthlyFrequency = p.frequencyQuantity * MONTH_HOURS_BUSINESS;
-          break;
-        case FrequencyUnit.DAY:
-          monthlyFrequency = p.frequencyQuantity * MONTH_DAYS_BUSINESS;
-          break;
-        case FrequencyUnit.WEEK:
-          monthlyFrequency = p.frequencyQuantity * WEEKS_PER_MONTH;
-          break;
-        case FrequencyUnit.QUARTER:
-          monthlyFrequency = p.frequencyQuantity / 3;
-          break;
-        case FrequencyUnit.YEAR:
-          monthlyFrequency = p.frequencyQuantity / 12;
-          break;
-        case FrequencyUnit.MONTH:
-        default:
-          monthlyFrequency = p.frequencyQuantity;
-      }
+      const monthlyFrequency = convertFrequencyToMonthly(p.frequencyQuantity, p.frequencyUnit);
       return acc + (p.hourlyRate * (p.minutesSpent / 60) * monthlyFrequency);
     }, 0);
 
@@ -99,7 +109,9 @@ export const calculateIndicatorStats = (ind: Indicator) => {
 
     case ImprovementType.REVENUE_INCREASE:
       monthlyEconomy = (ind.postIA.revenue || 0) - (ind.baseline.revenue || 0);
-      improvementPct = ind.baseline.revenue ? (((ind.postIA.revenue || 0) / (ind.baseline.revenue || 1) - 1) * 100).toFixed(1) : "100";
+      // Validação: evitar divisão por zero
+      const baselineRevenue = ind.baseline.revenue || 0;
+      improvementPct = baselineRevenue > 0 ? (((ind.postIA.revenue || 0) / baselineRevenue - 1) * 100).toFixed(1) : (baselineRevenue === 0 && (ind.postIA.revenue || 0) > 0 ? "100" : "0");
       break;
 
     case ImprovementType.MARGIN_IMPROVEMENT:
@@ -110,9 +122,12 @@ export const calculateIndicatorStats = (ind: Indicator) => {
       break;
 
     case ImprovementType.RISK_REDUCTION:
+      // Nota: impact é considerado ANUAL, mitigationCost é considerado MENSAL
+      // Risk = (Probabilidade × Impacto Anual) + Custo de Mitigação Mensal
       const riskBefore = (ind.baseline.probability || 0) / 100 * (ind.baseline.impact || 0);
       const riskAfter = (ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0);
-      monthlyEconomy = (riskBefore - riskAfter) + ((ind.baseline.mitigationCost || 0) - (ind.postIA.mitigationCost || 0));
+      // Converter impacto anual para mensal (dividir por 12) e somar custo de mitigação mensal
+      monthlyEconomy = ((riskBefore - riskAfter) / 12) + ((ind.baseline.mitigationCost || 0) - (ind.postIA.mitigationCost || 0));
       improvementPct = riskBefore > 0 ? (((riskBefore - riskAfter) / riskBefore) * 100).toFixed(1) : "0";
       break;
 
@@ -419,8 +434,9 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
     return sum + projectEconomy;
   }, 0);
 
-  // Calcular ROI total (média dos ROIs de projetos em produção)
-  const rois = productionProjects
+  // Calcular ROI total (média dos ROIs de projetos em produção e concluídos)
+  const activeProjects = [...productionProjects, ...completedProjects];
+  const rois = activeProjects
     .map(p => {
       if (p.roi_percentage) return p.roi_percentage;
       // Calcular ROI se não estiver disponível
@@ -430,7 +446,8 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
         return acc + stats.annualEconomy;
       }, 0);
       const totalCost = p.implementation_cost + (p.monthly_maintenance_cost * 12);
-      return totalCost > 0 ? ((annualEconomy - totalCost) / totalCost) * 100 : 0;
+      // Validação: evitar divisão por zero
+      return totalCost > 0 ? ((annualEconomy - totalCost) / totalCost) * 100 : (annualEconomy > 0 ? Infinity : 0);
     })
     .filter(roi => roi > 0);
 
@@ -439,8 +456,8 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
   // Calcular horas economizadas
   const horasEconomizadasAno = calculateHoursSaved(indicators.filter(ind => ind.is_active));
 
-  // Calcular payback médio (em meses)
-  const paybacks = productionProjects
+  // Calcular payback médio (em meses) - inclui projetos em produção e concluídos
+  const paybacks = activeProjects
     .map(p => {
       const projectIndicators = indicators.filter(ind => ind.project_id === p.id && ind.is_active);
       const monthlyEconomy = projectIndicators.reduce((acc, ind) => {
@@ -448,6 +465,7 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
         return acc + stats.monthlyEconomy;
       }, 0);
 
+      // Validação: evitar divisão por zero
       if (monthlyEconomy > 0) {
         return p.implementation_cost / monthlyEconomy;
       }
@@ -469,13 +487,14 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
   const custoIAAnual = calculateIACostAnnual(projects, activeIndicators);
   const economiaLiquida = economiaMO - custoIAAnual;
 
-  // Calcular investimento total
-  const investimentoTotal = projects.reduce((sum, p) => sum + p.implementation_cost, 0);
+  // Calcular investimento total (incluindo custo de manutenção anual)
+  const investimentoTotal = projects.reduce((sum, p) => sum + p.implementation_cost + (p.monthly_maintenance_cost * 12), 0);
 
   // ROI calculado = ((Economia_Líquida - Investimento) ÷ Investimento) × 100
   const roiCalculado = investimentoTotal > 0 ? ((economiaLiquida - investimentoTotal) / investimentoTotal) * 100 : 0;
 
-  // Payback calculado = Investimento ÷ (Economia_Líquida ÷ 12) [em meses]
+  // Payback calculado = Investimento Total (com manutenção) ÷ (Economia_Líquida ÷ 12) [em meses]
+  // Retorna 0 se economia líquida é zero ou negativa (nunca paga)
   const paybackCalculado = economiaLiquida > 0 ? investimentoTotal / (economiaLiquida / 12) : 0;
 
   return {
@@ -497,87 +516,75 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
   };
 };
 
-// Calcular histórico mensal de economia
+// Calcular histórico mensal de economia acumulada
 export const calculateEconomyHistory = (projects: Project[], indicators: Indicator[]): EconomyHistoryItem[] => {
-  const productionProjects = projects.filter(p => p.status === ProjectStatus.PRODUCTION);
+  // Incluir apenas projetos em produção ou concluídos
+  const activeProjects = projects.filter(p =>
+    p.status === ProjectStatus.PRODUCTION || p.status === ProjectStatus.COMPLETED
+  );
+  const now = new Date();
 
-  // Agrupar por mês baseado em go_live_date ou start_date
-  const monthlyData: Record<string, { bruta: number; investimento: number }> = {};
+  // Gerar série temporal dos últimos 12 meses
+  const months: EconomyHistoryItem[] = [];
+  let accumulatedBruta = 0;
+  let accumulatedInvestimento = 0;
 
-  productionProjects.forEach(project => {
-    const projectIndicators = indicators.filter(ind => ind.project_id === project.id && ind.is_active);
-    const monthlyEconomy = projectIndicators.reduce((acc, ind) => {
-      const stats = calculateIndicatorStats(ind);
-      return acc + stats.monthlyEconomy;
-    }, 0);
+  // Criar array de meses (últimos 12 meses)
+  for (let i = 11; i >= 0; i--) {
+    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
+    const monthLabel = monthDate.toLocaleDateString('pt-BR', { month: 'short' });
 
-    // Usar go_live_date se disponível, senão start_date
-    const referenceDate = project.go_live_date || project.start_date;
-    const date = new Date(referenceDate);
-    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    const monthLabel = date.toLocaleDateString('pt-BR', { month: 'short' });
+    // Calcular economia mensal de projetos ativos neste mês
+    let monthlyBruta = 0;
+    let monthlyInvestimento = 0;
 
-    if (!monthlyData[monthKey]) {
-      monthlyData[monthKey] = { bruta: 0, investimento: 0 };
-    }
+    activeProjects.forEach(project => {
+      // Verificar se o projeto estava ativo neste mês
+      // Usar created_at para determinar quando o projeto foi criado/iniciado
+      // Fallback para go_live_date ou start_date se created_at não estiver disponível
+      const referenceDate = project.created_at || project.go_live_date || project.start_date;
+      if (!referenceDate) return;
 
-    monthlyData[monthKey].bruta += monthlyEconomy;
-    monthlyData[monthKey].investimento += project.monthly_maintenance_cost;
-  });
+      const projectStartDate = new Date(referenceDate);
+      const monthStartDate = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
 
-  // Converter para array e ordenar
-  const history: EconomyHistoryItem[] = Object.entries(monthlyData)
-    .map(([monthKey, data]) => {
-      const [year, month] = monthKey.split('-');
-      const date = new Date(parseInt(year), parseInt(month) - 1);
-      return {
-        month: date.toLocaleDateString('pt-BR', { month: 'short' }),
-        bruta: Math.round(data.bruta),
-        investimento: Math.round(data.investimento),
-        liquida: Math.round(data.bruta - data.investimento),
-      };
-    })
-    .sort((a, b) => {
-      // Ordenar por data
-      const dateA = new Date(a.month + ' 1');
-      const dateB = new Date(b.month + ' 1');
-      return dateA.getTime() - dateB.getTime();
-    });
-
-  // Se não houver histórico, criar dados acumulados dos últimos 6 meses
-  if (history.length === 0) {
-    const now = new Date();
-    const last6Months: EconomyHistoryItem[] = [];
-
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthLabel = date.toLocaleDateString('pt-BR', { month: 'short' });
-
-      // Calcular economia total dos projetos em produção
-      const totalEconomy = productionProjects.reduce((sum, p) => {
-        const projectIndicators = indicators.filter(ind => ind.project_id === p.id && ind.is_active);
-        const monthlyEconomy = projectIndicators.reduce((acc, ind) => {
+      // Projeto está ativo se foi criado antes ou no início deste mês
+      if (projectStartDate <= monthStartDate) {
+        const projectIndicators = indicators.filter(ind => ind.project_id === project.id && ind.is_active);
+        const projectMonthlyEconomy = projectIndicators.reduce((acc, ind) => {
           const stats = calculateIndicatorStats(ind);
           return acc + stats.monthlyEconomy;
         }, 0);
-        return sum + monthlyEconomy;
-      }, 0);
 
-      const totalInvestment = productionProjects.reduce((sum, p) => sum + p.monthly_maintenance_cost, 0);
+        monthlyBruta += projectMonthlyEconomy;
+        monthlyInvestimento += project.monthly_maintenance_cost;
+      }
+    });
 
-      last6Months.push({
-        month: monthLabel,
-        bruta: Math.round(totalEconomy),
-        investimento: Math.round(totalInvestment),
-        liquida: Math.round(totalEconomy - totalInvestment),
-      });
-    }
+    // Acumular valores
+    accumulatedBruta += monthlyBruta;
+    accumulatedInvestimento += monthlyInvestimento;
 
-    return last6Months;
+    months.push({
+      month: monthLabel,
+      bruta: Math.round(accumulatedBruta),
+      investimento: Math.round(accumulatedInvestimento),
+      liquida: Math.round(accumulatedBruta - accumulatedInvestimento),
+    });
   }
 
-  // Retornar últimos 12 meses ou todos se menos de 12
-  return history.slice(-12);
+  // Se não houver projetos ativos (produção ou concluídos), retornar array vazio ou com zeros
+  if (activeProjects.length === 0) {
+    return months.map(m => ({
+      ...m,
+      bruta: 0,
+      investimento: 0,
+      liquida: 0,
+    }));
+  }
+
+  return months;
 };
 
 // Calcular distribuição por tipo de melhoria

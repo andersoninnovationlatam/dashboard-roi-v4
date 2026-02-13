@@ -147,6 +147,7 @@ export interface Project {
   sponsor?: string;
   roi_percentage?: number;
   total_economy_annual?: number;
+  created_at?: string;
 }
 
 export interface KPIStats {

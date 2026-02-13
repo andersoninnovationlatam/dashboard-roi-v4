@@ -6,6 +6,7 @@ import { projectService, indicatorService } from '../services/projectService';
 import { Project, Indicator, ProjectStatus, DevelopmentType, ImprovementType, FrequencyUnit, PersonInvolved, IndicatorData, ToolCost, CustomMetricUnit, CustomConfig } from '../types';
 import { DEVELOPMENT_LABELS, STATUS_COLORS, IMPROVEMENT_LABELS } from '../constants';
 import { aiPromptService } from '../services/aiPromptService';
+import { convertFrequencyToMonthly } from '../services/dashboardService';
 import ConfirmModal from '../components/ConfirmModal';
 import ToastContainer from '../components/ToastContainer';
 import { useToast } from '../hooks/useToast';
@@ -119,6 +120,11 @@ const ProjectDetail: React.FC = () => {
     return frequencyQuantity * getFrequencyMultiplier(frequencyUnit);
   };
 
+  // Função auxiliar para obter multiplicador anual (consistente com dashboardService)
+  const getFrequencyMultiplierAnnual = (unit: FrequencyUnit): number => {
+    return getFrequencyMultiplier(unit);
+  };
+
   // Calcular métricas do projeto
   const calculateProjectMetrics = () => {
     const activeIndicators = indicators.filter(ind => ind.is_active);
@@ -185,7 +191,7 @@ const ProjectDetail: React.FC = () => {
           if ((tool as any).isIACost) {
             const freqQty = (tool as any).frequencyQuantity || 0;
             const freqUnit = (tool as any).frequencyUnit || FrequencyUnit.MONTH;
-            const multiplier = getFrequencyMultiplier(freqUnit);
+            const multiplier = getFrequencyMultiplierAnnual(freqUnit);
             custoIAAnual += tool.monthlyCost * freqQty * multiplier;
           }
         });
@@ -195,12 +201,14 @@ const ProjectDetail: React.FC = () => {
     // Economia Líquida
     const economiaLiquida = economiaMO - custoIAAnual;
 
-    // ROI Calculado
-    const investimento = project.implementation_cost;
-    const roiCalculado = investimento > 0 ? ((economiaLiquida - investimento) / investimento) * 100 : 0;
+    // ROI Calculado (incluindo custo de manutenção anual)
+    const investimentoTotal = project.implementation_cost + (project.monthly_maintenance_cost * 12);
+    // Validação: evitar divisão por zero
+    const roiCalculado = investimentoTotal > 0 ? ((economiaLiquida - investimentoTotal) / investimentoTotal) * 100 : (economiaLiquida > 0 ? Infinity : 0);
 
-    // Payback Calculado
-    const paybackCalculado = economiaLiquida > 0 ? investimento / (economiaLiquida / 12) : 0;
+    // Payback Calculado (incluindo custo de manutenção anual)
+    // Retorna 0 se economia líquida é zero ou negativa (nunca paga)
+    const paybackCalculado = economiaLiquida > 0 ? investimentoTotal / (economiaLiquida / 12) : 0;
 
     return {
       horasBaselineAno: Math.round(horasBaselineAno),
@@ -236,8 +244,8 @@ const ProjectDetail: React.FC = () => {
     // 1. Cálculo de Custo de Pessoas (Normalizado para Mensal)
     const calcNormalizedMonthlyPeopleCost = (data: IndicatorData) => {
       return (data.people || []).reduce((acc, p) => {
-        const annualFreq = p.frequencyQuantity * calculateAnnualMultiplier(p.frequencyUnit);
-        const monthlyFreq = annualFreq / 12;
+        // Usar função utilitária centralizada com multiplicadores customizados do localStorage
+        const monthlyFreq = convertFrequencyToMonthly(p.frequencyQuantity, p.frequencyUnit, frequencyMultipliers);
         const costPerExecution = (p.minutesSpent / 60) * p.hourlyRate;
         return acc + (costPerExecution * monthlyFreq);
       }, 0);
@@ -262,8 +270,8 @@ const ProjectDetail: React.FC = () => {
         if (postIAPerson) {
           const minutesDiff = baselinePerson.minutesSpent - postIAPerson.minutesSpent;
           if (minutesDiff > 0) {
-            const annualFreq = baselinePerson.frequencyQuantity * calculateAnnualMultiplier(baselinePerson.frequencyUnit);
-            const monthlyFreq = annualFreq / 12;
+            // Usar função utilitária centralizada com multiplicadores customizados do localStorage
+            const monthlyFreq = convertFrequencyToMonthly(baselinePerson.frequencyQuantity, baselinePerson.frequencyUnit, frequencyMultipliers);
             totalMinutesSaved += minutesDiff * monthlyFreq;
           }
         }
@@ -317,10 +325,14 @@ const ProjectDetail: React.FC = () => {
 
       case ImprovementType.REVENUE_INCREASE:
         // Aplica-se a margem sobre o aumento de receita (se disponível no types)
-        const margin = (ind.postIA as any).marginPct || 1; // 1 = 100% se não preenchido
+        // Validação: se marginPct é 0, usar 1 (100%) como padrão
+        const marginPctValue = (ind.postIA as any).marginPct;
+        const margin = marginPctValue !== undefined && marginPctValue !== null ? marginPctValue : 1; // 1 = 100% se não preenchido
         const revenueGain = (ind.postIA.revenue || 0) - (ind.baseline.revenue || 0);
         monthlyEconomy = (revenueGain * margin) - totalPostIAMonthly;
-        improvementPct = ind.baseline.revenue ? (((revenueGain * margin) / ind.baseline.revenue) * 100).toFixed(1) : "100";
+        // Validação: evitar divisão por zero
+        const baselineRevenue = ind.baseline.revenue || 0;
+        improvementPct = baselineRevenue > 0 ? (((revenueGain * margin) / baselineRevenue) * 100).toFixed(1) : (baselineRevenue === 0 && revenueGain > 0 ? "100" : "0");
         break;
 
       case ImprovementType.MARGIN_IMPROVEMENT:
@@ -331,10 +343,12 @@ const ProjectDetail: React.FC = () => {
         break;
 
       case ImprovementType.RISK_REDUCTION:
-        // (Probabilidade x Impacto) Anterior - (Probabilidade x Impacto) Atual
+        // Nota: impact é considerado ANUAL, mitigationCost é considerado MENSAL
+        // Risk = (Probabilidade × Impacto Anual) + Custo de Mitigação Mensal
         const riskBefore = (ind.baseline.probability || 0) / 100 * (ind.baseline.impact || 0);
         const riskAfter = (ind.postIA.probability || 0) / 100 * (ind.postIA.impact || 0);
-        monthlyEconomy = ((riskBefore - riskAfter) / 12) + ((ind.baseline.mitigationCost || 0) - (ind.postIA.mitigationCost || 0)); // impacto anualizado para mensal
+        // Converter impacto anual para mensal (dividir por 12) e somar custo de mitigação mensal
+        monthlyEconomy = ((riskBefore - riskAfter) / 12) + ((ind.baseline.mitigationCost || 0) - (ind.postIA.mitigationCost || 0));
         improvementPct = riskBefore > 0 ? (((riskBefore - riskAfter) / riskBefore) * 100).toFixed(1) : "0";
         break;
 

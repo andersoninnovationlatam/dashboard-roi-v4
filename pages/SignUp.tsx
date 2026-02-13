@@ -50,7 +50,7 @@ const SignUp: React.FC = () => {
       <div className="max-w-md w-full">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-500/20 mb-4 text-white font-black text-3xl">
-            R
+            IL
           </div>
           <h1 className="text-3xl font-black text-slate-900 dark:text-white">Criar Conta</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Cadastre-se para começar a gerenciar seus projetos de IA</p>
@@ -65,8 +65,8 @@ const SignUp: React.FC = () => {
 
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-slate-400 tracking-widest ml-1">Nome Completo</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               required
               value={formData.fullName}
               onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
@@ -77,8 +77,8 @@ const SignUp: React.FC = () => {
 
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Empresa</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               required
               value={formData.organizationName}
               onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
@@ -89,8 +89,8 @@ const SignUp: React.FC = () => {
 
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-slate-400 tracking-widest ml-1">E-mail Corporativo</label>
-            <input 
-              type="email" 
+            <input
+              type="email"
               required
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -101,8 +101,8 @@ const SignUp: React.FC = () => {
 
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-slate-400 tracking-widest ml-1">Senha</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
               required
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -114,8 +114,8 @@ const SignUp: React.FC = () => {
 
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-slate-400 tracking-widest ml-1">Confirmar Senha</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
               required
               value={formData.confirmPassword}
               onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
@@ -124,8 +124,8 @@ const SignUp: React.FC = () => {
             />
           </div>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
             className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/30 flex items-center justify-center gap-3 disabled:opacity-50"
           >
