@@ -62,6 +62,16 @@ export enum CustomMetricUnit {
   PERCENTAGE = 'percentage' // %
 }
 
+// Configuração para indicador personalizado
+export interface CustomConfig {
+  direction: 'increase' | 'decrease';
+  unitType: 'percentage' | 'currency' | 'time' | 'quantity' | 'custom';
+  unitLabel?: string;
+  hasFinancialImpact: boolean;
+  unitCost?: number; // Custo por unidade (quando hasFinancialImpact = true)
+  volume?: number; // Volume para cálculo de impacto financeiro
+}
+
 export interface PersonInvolved {
   id: string;
   name: string;
@@ -106,6 +116,7 @@ export interface IndicatorData {
   customValue?: number;
   customMetricUnit?: CustomMetricUnit;
   customFrequencyUnit?: FrequencyUnit; // Usado quando customMetricUnit é CURRENCY
+  customConfig?: CustomConfig; // Nova configuração flexível para CUSTOM
 }
 
 export interface Indicator {
