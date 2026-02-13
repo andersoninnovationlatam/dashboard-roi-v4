@@ -17,6 +17,17 @@ export interface DistributionItem {
   color: string;
 }
 
+// ============================================================================
+// CONSTANTES DE CONVERSÃO TEMPORAL (Business Days - Padrão Profissional)
+// ============================================================================
+// Para cálculos de ROI e custos de mão de obra, usamos dias úteis (business days)
+// pois refletem o tempo real de trabalho, não dias de calendário.
+
+export const MONTH_DAYS_BUSINESS = 22;        // Dias úteis por mês (excluindo finais de semana)
+export const HOURS_PER_DAY_BUSINESS = 8;      // Horas de trabalho por dia útil
+export const MONTH_HOURS_BUSINESS = MONTH_DAYS_BUSINESS * HOURS_PER_DAY_BUSINESS; // 176 horas/mês
+export const WEEKS_PER_MONTH = 4.33;         // Semanas por mês (média)
+
 // Mapeamento de tipos de melhoria para labels e cores
 const IMPROVEMENT_TYPE_LABELS: Record<ImprovementType, { label: string; color: string }> = {
   [ImprovementType.PRODUCTIVITY]: { label: 'Produtividade', color: '#4CAF50' },
@@ -41,17 +52,18 @@ export const calculateIndicatorStats = (ind: Indicator) => {
 
   const calcPeopleCost = (people?: PersonInvolved[]) =>
     (people || []).reduce((acc, p) => {
-      // Converter frequência para mensal
+      // Converter frequência para mensal usando dias úteis (business)
       let monthlyFrequency = p.frequencyQuantity;
       switch (p.frequencyUnit) {
         case FrequencyUnit.HOUR:
-          monthlyFrequency = p.frequencyQuantity * 24 * 30; // Aproximação
+          // Hora de trabalho: multiplicar pelas horas úteis do mês
+          monthlyFrequency = p.frequencyQuantity * MONTH_HOURS_BUSINESS;
           break;
         case FrequencyUnit.DAY:
-          monthlyFrequency = p.frequencyQuantity * 30;
+          monthlyFrequency = p.frequencyQuantity * MONTH_DAYS_BUSINESS;
           break;
         case FrequencyUnit.WEEK:
-          monthlyFrequency = p.frequencyQuantity * 4.33;
+          monthlyFrequency = p.frequencyQuantity * WEEKS_PER_MONTH;
           break;
         case FrequencyUnit.QUARTER:
           monthlyFrequency = p.frequencyQuantity / 3;
@@ -139,11 +151,9 @@ export const calculateIndicatorStats = (ind: Indicator) => {
 
         switch (metric) {
           case CustomMetricUnit.HOUR:
-            // Assumindo 8 horas/dia, 22 dias úteis/mês = 176 horas/mês
-            return value * 176;
+            return value * MONTH_HOURS_BUSINESS;
           case CustomMetricUnit.DAY:
-            // Assumindo 22 dias úteis/mês
-            return value * 22;
+            return value * MONTH_DAYS_BUSINESS;
           case CustomMetricUnit.MONTH:
             return value;
           case CustomMetricUnit.YEAR:
@@ -153,21 +163,16 @@ export const calculateIndicatorStats = (ind: Indicator) => {
             if (frequency) {
               switch (frequency) {
                 case FrequencyUnit.HOUR:
-                  // R$/hora -> R$/mês: 8h/dia * 22 dias = 176h/mês
-                  return value * 176;
+                  return value * MONTH_HOURS_BUSINESS;
                 case FrequencyUnit.DAY:
-                  // R$/dia -> R$/mês: 22 dias úteis/mês
-                  return value * 22;
+                  return value * MONTH_DAYS_BUSINESS;
                 case FrequencyUnit.WEEK:
-                  // R$/semana -> R$/mês: ~4.33 semanas/mês
-                  return value * 4.33;
+                  return value * WEEKS_PER_MONTH;
                 case FrequencyUnit.MONTH:
                   return value;
                 case FrequencyUnit.QUARTER:
-                  // R$/trimestre -> R$/mês
                   return value / 3;
                 case FrequencyUnit.YEAR:
-                  // R$/ano -> R$/mês
                   return value / 12;
                 default:
                   return value;
@@ -238,11 +243,11 @@ export const calculateIndicatorStats = (ind: Indicator) => {
 const getFrequencyMultiplier = (unit: FrequencyUnit): number => {
   switch (unit) {
     case FrequencyUnit.HOUR:
-      return 24 * 30; // Aproximação
+      return MONTH_HOURS_BUSINESS;
     case FrequencyUnit.DAY:
-      return 30;
+      return MONTH_DAYS_BUSINESS;
     case FrequencyUnit.WEEK:
-      return 4.33;
+      return WEEKS_PER_MONTH;
     case FrequencyUnit.QUARTER:
       return 1 / 3;
     case FrequencyUnit.YEAR:

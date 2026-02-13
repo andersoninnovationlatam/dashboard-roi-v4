@@ -5,6 +5,8 @@
 -- Execute este SQL no SQL Editor do Supabase
 -- ============================================
 
+BEGIN;
+
 -- 1. Remover a constraint antiga (se existir)
 ALTER TABLE indicators 
 DROP CONSTRAINT IF EXISTS indicators_improvement_type_check;
@@ -25,6 +27,8 @@ CHECK (improvement_type IN (
   'custom',
   'other'
 ));
+
+COMMIT;
 
 -- ============================================
 -- INSTRUÇÕES DE USO:
