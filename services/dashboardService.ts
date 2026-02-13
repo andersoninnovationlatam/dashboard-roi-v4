@@ -1,4 +1,4 @@
-import { Project, Indicator, KPIStats, ImprovementType, ProjectStatus, PersonInvolved, ToolCost, IndicatorData, FrequencyUnit } from '../types';
+import { Project, Indicator, KPIStats, ImprovementType, ProjectStatus, PersonInvolved, ToolCost, IndicatorData, FrequencyUnit, CustomMetricUnit } from '../types';
 import { projectService } from './projectService';
 import { indicatorService } from './projectService';
 
@@ -28,6 +28,7 @@ const IMPROVEMENT_TYPE_LABELS: Record<ImprovementType, { label: string; color: s
   [ImprovementType.SPEED]: { label: 'Velocidade', color: '#4CAF50' },
   [ImprovementType.SATISFACTION]: { label: 'Satisfação', color: '#FFC107' },
   [ImprovementType.RELATED_COSTS]: { label: 'Custos Relacionados', color: '#795548' },
+  [ImprovementType.CUSTOM]: { label: 'Personalizado', color: '#9E9E9E' },
   [ImprovementType.OTHER]: { label: 'Outros', color: '#9E9E9E' },
 };
 
@@ -129,6 +130,96 @@ export const calculateIndicatorStats = (ind: Indicator) => {
       const relatedCostsEconomyAnnual = relatedCostsBaselineAnnual - relatedCostsPostIAAnnual;
       monthlyEconomy = relatedCostsEconomyAnnual / 12; // Converter anual para mensal
       improvementPct = relatedCostsBaselineAnnual > 0 ? (((relatedCostsBaselineAnnual - relatedCostsPostIAAnnual) / relatedCostsBaselineAnnual) * 100).toFixed(1) : "0";
+      break;
+
+    case ImprovementType.CUSTOM:
+      // Função auxiliar para normalizar valores para R$/mês
+      const normalizeToMonthlyCurrency = (value: number, metric: CustomMetricUnit | undefined, frequency?: FrequencyUnit | undefined): number => {
+        if (!metric) return value;
+
+        switch (metric) {
+          case CustomMetricUnit.HOUR:
+            // Assumindo 8 horas/dia, 22 dias úteis/mês = 176 horas/mês
+            return value * 176;
+          case CustomMetricUnit.DAY:
+            // Assumindo 22 dias úteis/mês
+            return value * 22;
+          case CustomMetricUnit.MONTH:
+            return value;
+          case CustomMetricUnit.YEAR:
+            return value / 12;
+          case CustomMetricUnit.CURRENCY:
+            // Se é R$, converter baseado na frequência escolhida
+            if (frequency) {
+              switch (frequency) {
+                case FrequencyUnit.HOUR:
+                  // R$/hora -> R$/mês: 8h/dia * 22 dias = 176h/mês
+                  return value * 176;
+                case FrequencyUnit.DAY:
+                  // R$/dia -> R$/mês: 22 dias úteis/mês
+                  return value * 22;
+                case FrequencyUnit.WEEK:
+                  // R$/semana -> R$/mês: ~4.33 semanas/mês
+                  return value * 4.33;
+                case FrequencyUnit.MONTH:
+                  return value;
+                case FrequencyUnit.QUARTER:
+                  // R$/trimestre -> R$/mês
+                  return value / 3;
+                case FrequencyUnit.YEAR:
+                  // R$/ano -> R$/mês
+                  return value / 12;
+                default:
+                  return value;
+              }
+            }
+            return value; // Se não tem frequência, assume mensal
+          case CustomMetricUnit.PERCENTAGE:
+            // Porcentagem não pode ser convertida diretamente para R$
+            return value;
+          default:
+            return value;
+        }
+      };
+
+      const baselineValue = ind.baseline.customValue || 0;
+      const postIAValue = ind.postIA.customValue || 0;
+      const baselineMetric = ind.baseline.customMetricUnit;
+      const postIAMetric = ind.postIA.customMetricUnit;
+      const baselineFrequency = ind.baseline.customFrequencyUnit;
+      const postIAFrequency = ind.postIA.customFrequencyUnit;
+
+      // Caso especial: ambos são porcentagem
+      if (baselineMetric === CustomMetricUnit.PERCENTAGE && postIAMetric === CustomMetricUnit.PERCENTAGE) {
+        // Para porcentagem: economia = redução (baseline - pós-IA), melhoria = redução percentual
+        // Se baseline é maior, há economia (redução de custo/erro)
+        monthlyEconomy = baselineValue - postIAValue;
+        improvementPct = baselineValue !== 0 ? (((baselineValue - postIAValue) / Math.abs(baselineValue)) * 100).toFixed(1) : "0";
+      }
+      // Caso especial: um é porcentagem e outro não
+      else if (baselineMetric === CustomMetricUnit.PERCENTAGE || postIAMetric === CustomMetricUnit.PERCENTAGE) {
+        // Não podemos comparar diretamente porcentagem com valor absoluto
+        // Assumimos que a porcentagem é aplicada sobre um valor base
+        // Por enquanto, tratamos como diferença direta (pode ser ajustado depois)
+        const baselineNormalized = baselineMetric === CustomMetricUnit.PERCENTAGE
+          ? baselineValue
+          : normalizeToMonthlyCurrency(baselineValue, baselineMetric, baselineFrequency);
+        const postIANormalized = postIAMetric === CustomMetricUnit.PERCENTAGE
+          ? postIAValue
+          : normalizeToMonthlyCurrency(postIAValue, postIAMetric, postIAFrequency);
+        // Economia = baseline - pós-IA (redução de custo)
+        monthlyEconomy = baselineNormalized - postIANormalized;
+        improvementPct = baselineNormalized !== 0 ? (((baselineNormalized - postIANormalized) / Math.abs(baselineNormalized)) * 100).toFixed(1) : "0";
+      }
+      // Caso normal: ambos são valores absolutos (tempo ou R$)
+      else {
+        const baselineMonthly = normalizeToMonthlyCurrency(baselineValue, baselineMetric, baselineFrequency);
+        const postIAMonthly = normalizeToMonthlyCurrency(postIAValue, postIAMetric, postIAFrequency);
+        // Economia = baseline - pós-IA (redução de custo = economia positiva)
+        monthlyEconomy = baselineMonthly - postIAMonthly;
+        // Melhoria = redução percentual do baseline (sempre positivo quando há economia)
+        improvementPct = baselineMonthly !== 0 ? (((baselineMonthly - postIAMonthly) / Math.abs(baselineMonthly)) * 100).toFixed(1) : "0";
+      }
       break;
 
     default:

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { projectService, indicatorService } from '../services/projectService';
-import { Project, Indicator, ProjectStatus, DevelopmentType, ImprovementType, FrequencyUnit, PersonInvolved, IndicatorData, ToolCost } from '../types';
+import { Project, Indicator, ProjectStatus, DevelopmentType, ImprovementType, FrequencyUnit, PersonInvolved, IndicatorData, ToolCost, CustomMetricUnit } from '../types';
 import { DEVELOPMENT_LABELS, STATUS_COLORS, IMPROVEMENT_LABELS } from '../constants';
 import { aiPromptService } from '../services/aiPromptService';
 import ConfirmModal from '../components/ConfirmModal';
@@ -90,7 +90,23 @@ const ProjectDetail: React.FC = () => {
 
       if (projectData) {
         setProject(projectData);
-        setIndicators(indicatorsData);
+        // Sincronizar indicadores CUSTOM: garantir que pós-IA tenha mesma métrica e frequência do baseline
+        const syncedIndicators = indicatorsData.map(ind => {
+          if (ind.improvement_type === ImprovementType.CUSTOM) {
+            return {
+              ...ind,
+              postIA: {
+                ...ind.postIA,
+                customMetricUnit: ind.baseline.customMetricUnit || CustomMetricUnit.CURRENCY,
+                customFrequencyUnit: ind.baseline.customMetricUnit === CustomMetricUnit.CURRENCY
+                  ? (ind.baseline.customFrequencyUnit || FrequencyUnit.MONTH)
+                  : undefined
+              }
+            };
+          }
+          return ind;
+        });
+        setIndicators(syncedIndicators);
       }
     } catch (error) {
       console.error('Erro ao carregar projeto:', error);
@@ -221,6 +237,30 @@ const ProjectDetail: React.FC = () => {
       return (data.tools || []).reduce((acc, t) => acc + t.monthlyCost, 0);
     };
 
+    // 3. Cálculo de Tempo Economizado Mensal (em horas) - para SPEED
+    const calcMonthlyTimeSaved = () => {
+      if (ind.improvement_type !== ImprovementType.SPEED) return 0;
+
+      let totalMinutesSaved = 0;
+      const baselinePeople = ind.baseline.people || [];
+      const postIAPeople = ind.postIA.people || [];
+
+      // Comparar cada pessoa do baseline com a correspondente do pós-IA
+      baselinePeople.forEach((baselinePerson, idx) => {
+        const postIAPerson = postIAPeople[idx];
+        if (postIAPerson) {
+          const minutesDiff = baselinePerson.minutesSpent - postIAPerson.minutesSpent;
+          if (minutesDiff > 0) {
+            const annualFreq = baselinePerson.frequencyQuantity * calculateAnnualMultiplier(baselinePerson.frequencyUnit);
+            const monthlyFreq = annualFreq / 12;
+            totalMinutesSaved += minutesDiff * monthlyFreq;
+          }
+        }
+      });
+
+      return totalMinutesSaved / 60; // Converter minutos para horas
+    };
+
     const baselinePeople = calcNormalizedMonthlyPeopleCost(ind.baseline);
     const baselineTools = calcMonthlyToolCost(ind.baseline);
     const postIAPeople = calcNormalizedMonthlyPeopleCost(ind.postIA);
@@ -315,15 +355,118 @@ const ProjectDetail: React.FC = () => {
         improvementPct = relatedCostsBaselineAnnual > 0 ? (((relatedCostsBaselineAnnual - relatedCostsPostIAAnnual) / relatedCostsBaselineAnnual) * 100).toFixed(1) : "0";
         break;
 
+      case ImprovementType.CUSTOM:
+        // Função auxiliar para normalizar valores para R$/mês
+        const normalizeToMonthlyCurrency = (value: number, metric: CustomMetricUnit | undefined, frequency?: FrequencyUnit | undefined): number => {
+          if (!metric) return value;
+
+          switch (metric) {
+            case CustomMetricUnit.HOUR:
+              // Assumindo 8 horas/dia, 22 dias úteis/mês = 176 horas/mês
+              return value * 176;
+            case CustomMetricUnit.DAY:
+              // Assumindo 22 dias úteis/mês
+              return value * 22;
+            case CustomMetricUnit.MONTH:
+              return value;
+            case CustomMetricUnit.YEAR:
+              return value / 12;
+            case CustomMetricUnit.CURRENCY:
+              // Se é R$, converter baseado na frequência escolhida
+              if (frequency) {
+                switch (frequency) {
+                  case FrequencyUnit.HOUR:
+                    // R$/hora -> R$/mês: 8h/dia * 22 dias = 176h/mês
+                    return value * 176;
+                  case FrequencyUnit.DAY:
+                    // R$/dia -> R$/mês: 22 dias úteis/mês
+                    return value * 22;
+                  case FrequencyUnit.WEEK:
+                    // R$/semana -> R$/mês: ~4.33 semanas/mês
+                    return value * 4.33;
+                  case FrequencyUnit.MONTH:
+                    return value;
+                  case FrequencyUnit.QUARTER:
+                    // R$/trimestre -> R$/mês
+                    return value / 3;
+                  case FrequencyUnit.YEAR:
+                    // R$/ano -> R$/mês
+                    return value / 12;
+                  default:
+                    return value;
+                }
+              }
+              return value; // Se não tem frequência, assume mensal
+            case CustomMetricUnit.PERCENTAGE:
+              // Porcentagem não pode ser convertida diretamente para R$
+              return value;
+            default:
+              return value;
+          }
+        };
+
+        const baselineValue = ind.baseline.customValue || 0;
+        const postIAValue = ind.postIA.customValue || 0;
+        const baselineMetric = ind.baseline.customMetricUnit;
+        const postIAMetric = ind.postIA.customMetricUnit;
+        const baselineFrequency = ind.baseline.customFrequencyUnit;
+        const postIAFrequency = ind.postIA.customFrequencyUnit;
+
+        // Caso especial: ambos são porcentagem
+        if (baselineMetric === CustomMetricUnit.PERCENTAGE && postIAMetric === CustomMetricUnit.PERCENTAGE) {
+          // Para porcentagem: economia = redução (baseline - pós-IA), melhoria = redução percentual
+          // Se baseline é maior, há economia (redução de custo/erro)
+          monthlyEconomy = baselineValue - postIAValue;
+          improvementPct = baselineValue !== 0 ? (((baselineValue - postIAValue) / Math.abs(baselineValue)) * 100).toFixed(1) : "0";
+        }
+        // Caso especial: um é porcentagem e outro não
+        else if (baselineMetric === CustomMetricUnit.PERCENTAGE || postIAMetric === CustomMetricUnit.PERCENTAGE) {
+          // Não podemos comparar diretamente porcentagem com valor absoluto
+          // Assumimos que a porcentagem é aplicada sobre um valor base
+          // Por enquanto, tratamos como diferença direta (pode ser ajustado depois)
+          const baselineNormalized = baselineMetric === CustomMetricUnit.PERCENTAGE
+            ? baselineValue
+            : normalizeToMonthlyCurrency(baselineValue, baselineMetric, baselineFrequency);
+          const postIANormalized = postIAMetric === CustomMetricUnit.PERCENTAGE
+            ? postIAValue
+            : normalizeToMonthlyCurrency(postIAValue, postIAMetric, postIAFrequency);
+          // Economia = baseline - pós-IA (redução de custo)
+          monthlyEconomy = baselineNormalized - postIANormalized;
+          improvementPct = baselineNormalized !== 0 ? (((baselineNormalized - postIANormalized) / Math.abs(baselineNormalized)) * 100).toFixed(1) : "0";
+        }
+        // Caso normal: ambos são valores absolutos (tempo ou R$)
+        else {
+          // Se não tem métrica definida, retornar 0
+          if (!baselineMetric || !postIAMetric) {
+            monthlyEconomy = 0;
+            improvementPct = "0";
+          } else {
+            const baselineMonthly = normalizeToMonthlyCurrency(baselineValue, baselineMetric, baselineFrequency);
+            const postIAMonthly = normalizeToMonthlyCurrency(postIAValue, postIAMetric, postIAFrequency);
+            // Economia = baseline - pós-IA (redução de custo = economia positiva)
+            monthlyEconomy = baselineMonthly - postIAMonthly;
+            // Melhoria = redução percentual do baseline (sempre positivo quando há economia)
+            improvementPct = baselineMonthly !== 0 ? (((baselineMonthly - postIAMonthly) / Math.abs(baselineMonthly)) * 100).toFixed(1) : "0";
+          }
+        }
+        break;
+
       default:
         monthlyEconomy = totalBaselineMonthly - totalPostIAMonthly;
         improvementPct = totalBaselineMonthly > 0 ? (((totalBaselineMonthly - totalPostIAMonthly) / totalBaselineMonthly) * 100).toFixed(1) : "0";
     }
 
+    const monthlyTimeSaved = calcMonthlyTimeSaved();
+
+    // Garantir que os valores são números válidos
+    const validMonthlyEconomy = isNaN(monthlyEconomy) ? 0 : monthlyEconomy;
+    const validImprovementPct = improvementPct || "0";
+
     return {
-      monthlyEconomy: monthlyEconomy.toFixed(2),
-      annualEconomy: monthlyEconomy * 12,
-      improvementPct
+      monthlyEconomy: validMonthlyEconomy.toFixed(2),
+      annualEconomy: validMonthlyEconomy * 12,
+      improvementPct: validImprovementPct,
+      monthlyTimeSaved: monthlyTimeSaved.toFixed(2) // Horas economizadas por mês (apenas para SPEED)
     };
   };
 
@@ -590,8 +733,12 @@ const ProjectDetail: React.FC = () => {
       name: `Novo Indicador - ${IMPROVEMENT_LABELS[type]}`,
       description: '',
       improvement_type: type,
-      baseline: { people: [] },
-      postIA: { people: [] },
+      baseline: type === ImprovementType.CUSTOM
+        ? { customValue: 0, customMetricUnit: CustomMetricUnit.CURRENCY, customFrequencyUnit: FrequencyUnit.MONTH }
+        : { people: [] },
+      postIA: type === ImprovementType.CUSTOM
+        ? { customValue: 0, customMetricUnit: CustomMetricUnit.CURRENCY, customFrequencyUnit: FrequencyUnit.MONTH }
+        : { people: [] },
       is_active: true,
     };
 
@@ -599,6 +746,13 @@ const ProjectDetail: React.FC = () => {
       const saved = await indicatorService.create(newInd);
       setIndicators([...indicators, saved]);
       showToast('Indicador criado com sucesso!', 'success');
+      // Scroll para o novo card criado
+      setTimeout(() => {
+        const newCard = document.querySelector(`[data-indicator-id="${saved.id}"]`);
+        if (newCard) {
+          newCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 100);
     } catch (error) {
       console.error('Erro ao criar indicador:', error);
       showToast('Erro ao salvar indicador', 'error');
@@ -817,7 +971,7 @@ const ProjectDetail: React.FC = () => {
                   {indicators.map((ind, idx) => {
                     const stats = calculateIndicatorStats(ind);
                     return (
-                      <div key={ind.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden group transition-all">
+                      <div key={ind.id} data-indicator-id={ind.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden group transition-all">
                         <div className="p-5 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/20">
                           <div className="flex items-center gap-3 flex-1 mr-4">
                             <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-lg">
@@ -1182,6 +1336,92 @@ const ProjectDetail: React.FC = () => {
                                     value={ind.baseline.value || 0}
                                     onChange={(e) => updateIndicatorData(idx, 'baseline', 'value', parseFloat(e.target.value) || 0)}
                                   />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* CUSTOM */}
+                            {ind.improvement_type === ImprovementType.CUSTOM && (
+                              <div className="space-y-4">
+                                <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60 space-y-3">
+                                  <div>
+                                    <label className="text-[9px] uppercase font-bold text-slate-400 block mb-2">Valor Baseline</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-slate-200 dark:border-slate-700 text-sm font-bold"
+                                      value={ind.baseline.customValue || ''}
+                                      onChange={(e) => updateIndicatorData(idx, 'baseline', 'customValue', parseFloat(e.target.value) || 0)}
+                                      placeholder="0.00"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] uppercase font-bold text-slate-400 block mb-2">Métrica Baseline</label>
+                                    <select
+                                      className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-slate-200 dark:border-slate-700 text-sm font-bold"
+                                      value={ind.baseline.customMetricUnit || CustomMetricUnit.CURRENCY}
+                                      onChange={async (e) => {
+                                        const newMetric = e.target.value as CustomMetricUnit;
+                                        const newArr = [...indicators];
+                                        newArr[idx] = {
+                                          ...newArr[idx],
+                                          baseline: { ...newArr[idx].baseline, customMetricUnit: newMetric },
+                                          postIA: {
+                                            ...newArr[idx].postIA,
+                                            customMetricUnit: newMetric,
+                                            // Se não for CURRENCY, limpar a frequência do pós-IA também
+                                            customFrequencyUnit: newMetric === CustomMetricUnit.CURRENCY
+                                              ? (newArr[idx].postIA.customFrequencyUnit || newArr[idx].baseline.customFrequencyUnit || FrequencyUnit.MONTH)
+                                              : undefined
+                                          }
+                                        };
+                                        // Se não for CURRENCY, limpar a frequência do baseline
+                                        if (newMetric !== CustomMetricUnit.CURRENCY) {
+                                          newArr[idx].baseline.customFrequencyUnit = undefined;
+                                        } else if (!newArr[idx].baseline.customFrequencyUnit) {
+                                          // Se for CURRENCY e não tem frequência, definir padrão
+                                          newArr[idx].baseline.customFrequencyUnit = FrequencyUnit.MONTH;
+                                          newArr[idx].postIA.customFrequencyUnit = FrequencyUnit.MONTH;
+                                        }
+                                        setIndicators(newArr);
+                                        await saveIndicator(newArr[idx]);
+                                      }}
+                                    >
+                                      <option value={CustomMetricUnit.HOUR}>Hora</option>
+                                      <option value={CustomMetricUnit.DAY}>Dia</option>
+                                      <option value={CustomMetricUnit.MONTH}>Mês</option>
+                                      <option value={CustomMetricUnit.YEAR}>Ano</option>
+                                      <option value={CustomMetricUnit.CURRENCY}>R$ (Real)</option>
+                                      <option value={CustomMetricUnit.PERCENTAGE}>% (Porcentagem)</option>
+                                    </select>
+                                  </div>
+                                  {/* Mostrar campo de frequência apenas quando a métrica for R$ */}
+                                  {ind.baseline.customMetricUnit === CustomMetricUnit.CURRENCY && (
+                                    <div>
+                                      <label className="text-[9px] uppercase font-bold text-slate-400 block mb-2">Frequência do Valor</label>
+                                      <select
+                                        className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-slate-200 dark:border-slate-700 text-sm font-bold"
+                                        value={ind.baseline.customFrequencyUnit || FrequencyUnit.MONTH}
+                                        onChange={async (e) => {
+                                          const newFrequency = e.target.value as FrequencyUnit;
+                                          const newArr = [...indicators];
+                                          newArr[idx] = {
+                                            ...newArr[idx],
+                                            baseline: { ...newArr[idx].baseline, customFrequencyUnit: newFrequency },
+                                            postIA: { ...newArr[idx].postIA, customFrequencyUnit: newFrequency }
+                                          };
+                                          setIndicators(newArr);
+                                          await saveIndicator(newArr[idx]);
+                                        }}
+                                      >
+                                        <option value={FrequencyUnit.HOUR}>R$/Hora</option>
+                                        <option value={FrequencyUnit.DAY}>R$/Dia</option>
+                                        <option value={FrequencyUnit.WEEK}>R$/Semana</option>
+                                        <option value={FrequencyUnit.MONTH}>R$/Mês</option>
+                                        <option value={FrequencyUnit.YEAR}>R$/Ano</option>
+                                      </select>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -1577,6 +1817,119 @@ const ProjectDetail: React.FC = () => {
                                     </div>
                                   </div>
                                 )}
+
+                                {/* CUSTOM Post-IA */}
+                                {ind.improvement_type === ImprovementType.CUSTOM && (
+                                  <div className="space-y-4">
+                                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-3">
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Valor Pós-IA</label>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                          value={ind.postIA.customValue || ''}
+                                          onChange={(e) => updateIndicatorData(idx, 'postIA', 'customValue', parseFloat(e.target.value) || 0)}
+                                          placeholder="0.00"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Métrica Pós-IA</label>
+                                        <select
+                                          className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none opacity-60 cursor-not-allowed"
+                                          value={ind.baseline.customMetricUnit || CustomMetricUnit.CURRENCY}
+                                          disabled
+                                          title="A métrica do Pós-IA é automaticamente igual à métrica do Baseline"
+                                        >
+                                          <option value={CustomMetricUnit.HOUR}>Hora</option>
+                                          <option value={CustomMetricUnit.DAY}>Dia</option>
+                                          <option value={CustomMetricUnit.MONTH}>Mês</option>
+                                          <option value={CustomMetricUnit.YEAR}>Ano</option>
+                                          <option value={CustomMetricUnit.CURRENCY}>R$ (Real)</option>
+                                          <option value={CustomMetricUnit.PERCENTAGE}>% (Porcentagem)</option>
+                                        </select>
+                                        <p className="text-[8px] text-indigo-300 dark:text-indigo-500 mt-1">Sincronizado com Baseline</p>
+                                      </div>
+                                      {/* Mostrar campo de frequência apenas quando a métrica for R$ */}
+                                      {ind.baseline.customMetricUnit === CustomMetricUnit.CURRENCY && (
+                                        <div>
+                                          <label className="text-[9px] uppercase font-bold text-indigo-400 block mb-2">Frequência do Valor</label>
+                                          <select
+                                            className="w-full bg-white dark:bg-slate-800 p-3 rounded border border-indigo-200 dark:border-indigo-800 text-sm font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500 outline-none opacity-60 cursor-not-allowed"
+                                            value={ind.baseline.customFrequencyUnit || FrequencyUnit.MONTH}
+                                            disabled
+                                            title="A frequência do Pós-IA é automaticamente igual à frequência do Baseline"
+                                          >
+                                            <option value={FrequencyUnit.HOUR}>R$/Hora</option>
+                                            <option value={FrequencyUnit.DAY}>R$/Dia</option>
+                                            <option value={FrequencyUnit.WEEK}>R$/Semana</option>
+                                            <option value={FrequencyUnit.MONTH}>R$/Mês</option>
+                                            <option value={FrequencyUnit.YEAR}>R$/Ano</option>
+                                          </select>
+                                          <p className="text-[8px] text-indigo-300 dark:text-indigo-500 mt-1">Sincronizado com Baseline</p>
+                                        </div>
+                                      )}
+                                      {/* Preview da diferença calculada */}
+                                      {(() => {
+                                        const baselineValue = ind.baseline.customValue || 0;
+                                        const postIAValue = ind.postIA.customValue || 0;
+                                        const baselineMetric = ind.baseline.customMetricUnit;
+                                        const baselineFrequency = ind.baseline.customFrequencyUnit;
+
+                                        if (baselineValue && postIAValue && baselineMetric) {
+                                          // Usar a mesma lógica de normalização (pós-IA sempre tem mesma métrica e frequência do baseline)
+                                          const normalizeToMonthlyCurrency = (val: number, metric: CustomMetricUnit, frequency?: FrequencyUnit): number => {
+                                            switch (metric) {
+                                              case CustomMetricUnit.HOUR: return val * 176;
+                                              case CustomMetricUnit.DAY: return val * 22;
+                                              case CustomMetricUnit.MONTH: return val;
+                                              case CustomMetricUnit.YEAR: return val / 12;
+                                              case CustomMetricUnit.CURRENCY:
+                                                if (frequency) {
+                                                  switch (frequency) {
+                                                    case FrequencyUnit.HOUR: return val * 176;
+                                                    case FrequencyUnit.DAY: return val * 22;
+                                                    case FrequencyUnit.WEEK: return val * 4.33;
+                                                    case FrequencyUnit.MONTH: return val;
+                                                    case FrequencyUnit.QUARTER: return val / 3;
+                                                    case FrequencyUnit.YEAR: return val / 12;
+                                                    default: return val;
+                                                  }
+                                                }
+                                                return val;
+                                              case CustomMetricUnit.PERCENTAGE: return val;
+                                              default: return val;
+                                            }
+                                          };
+
+                                          let diff = 0;
+                                          let unit = 'R$/mês';
+
+                                          if (baselineMetric === CustomMetricUnit.PERCENTAGE) {
+                                            // Para porcentagem: diferença = baseline - pós-IA (redução)
+                                            diff = baselineValue - postIAValue;
+                                            unit = '%';
+                                          } else {
+                                            const baselineMonthly = normalizeToMonthlyCurrency(baselineValue, baselineMetric, baselineFrequency);
+                                            const postIAMonthly = normalizeToMonthlyCurrency(postIAValue, baselineMetric, baselineFrequency);
+                                            // Economia = baseline - pós-IA (redução de custo = economia positiva)
+                                            diff = baselineMonthly - postIAMonthly;
+                                          }
+
+                                          return (
+                                            <div className="pt-3 border-t border-indigo-200 dark:border-indigo-800">
+                                              <p className="text-[10px] font-bold text-indigo-400 uppercase mb-1">Economia Estimada</p>
+                                              <p className={`text-lg font-black ${diff >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                {diff >= 0 ? '+' : ''}{diff.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {unit}
+                                              </p>
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+                                    </div>
+                                  </div>
+                                )}
                               </>
                             )}
                           </div>
@@ -1586,12 +1939,31 @@ const ProjectDetail: React.FC = () => {
                           <div className="flex gap-12">
                             <div className="flex flex-col">
                               <span className="text-[9px] font-black uppercase text-slate-500">Melhoria Estimada</span>
-                              <span className="text-xl font-black text-indigo-400">+{stats.improvementPct}%</span>
+                              <span className={`text-xl font-black ${parseFloat(stats.improvementPct || '0') >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {(() => {
+                                  const pct = parseFloat(stats.improvementPct || '0');
+                                  if (isNaN(pct)) return '0%';
+                                  // Melhoria sempre positiva quando há redução de custo
+                                  return `${Math.abs(pct).toFixed(1)}%`;
+                                })()}
+                              </span>
                             </div>
                             <div className="flex flex-col border-l border-slate-800 pl-12">
                               <span className="text-[9px] font-black uppercase text-slate-500">Economia Mensal</span>
-                              <span className="text-xl font-black text-green-400">R$ {parseFloat(stats.monthlyEconomy || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              <span className={`text-xl font-black ${parseFloat(stats.monthlyEconomy || '0') >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {(() => {
+                                  const economy = parseFloat(stats.monthlyEconomy || '0');
+                                  if (isNaN(economy)) return 'R$ 0,00';
+                                  return `R$ ${economy.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                })()}
+                              </span>
                             </div>
+                            {ind.improvement_type === ImprovementType.SPEED && stats.monthlyTimeSaved && parseFloat(stats.monthlyTimeSaved) > 0 && (
+                              <div className="flex flex-col border-l border-slate-800 pl-12">
+                                <span className="text-[9px] font-black uppercase text-slate-500">Tempo Economizado</span>
+                                <span className="text-xl font-black text-blue-400">{parseFloat(stats.monthlyTimeSaved || '0').toFixed(1)}h/mês</span>
+                              </div>
+                            )}
                           </div>
                           <div className="text-right">
                             <span className="text-[10px] font-black uppercase text-slate-500 block">Confidência do ROI</span>

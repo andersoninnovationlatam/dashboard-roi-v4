@@ -39,6 +39,7 @@ export enum ImprovementType {
   SPEED = 'speed',
   SATISFACTION = 'satisfaction',
   RELATED_COSTS = 'related_costs',
+  CUSTOM = 'custom',
   OTHER = 'other'
 }
 
@@ -49,6 +50,16 @@ export enum FrequencyUnit {
   MONTH = 'month',
   QUARTER = 'quarter',
   YEAR = 'year'
+}
+
+// Enum para métricas customizadas
+export enum CustomMetricUnit {
+  HOUR = 'hour',
+  DAY = 'day',
+  MONTH = 'month',
+  YEAR = 'year',
+  CURRENCY = 'currency', // R$
+  PERCENTAGE = 'percentage' // %
 }
 
 export interface PersonInvolved {
@@ -91,6 +102,10 @@ export interface IndicatorData {
   valuePerClient?: number;
   churnRate?: number;
   implementationCost?: number;
+  // Campos para indicador personalizado
+  customValue?: number;
+  customMetricUnit?: CustomMetricUnit;
+  customFrequencyUnit?: FrequencyUnit; // Usado quando customMetricUnit é CURRENCY
 }
 
 export interface Indicator {
