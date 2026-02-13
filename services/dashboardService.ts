@@ -447,9 +447,9 @@ export const calculateKPIStats = (projects: Project[], indicators: Indicator[]):
       }, 0);
       const totalCost = p.implementation_cost + (p.monthly_maintenance_cost * 12);
       // Validação: evitar divisão por zero
-      return totalCost > 0 ? ((annualEconomy - totalCost) / totalCost) * 100 : (annualEconomy > 0 ? Infinity : 0);
+      return totalCost > 0 ? ((annualEconomy - totalCost) / totalCost) * 100 : 0;
     })
-    .filter(roi => roi > 0);
+    .filter(roi => roi !== Infinity && !isNaN(roi));
 
   const roiTotal = rois.length > 0 ? rois.reduce((a, b) => a + b, 0) / rois.length : 0;
 
