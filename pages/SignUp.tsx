@@ -140,7 +140,7 @@ const SignUp: React.FC = () => {
 
         <p className="text-center mt-8 text-slate-500 dark:text-slate-400 text-sm">
           Já tem uma conta? <Link to="/login" className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">Fazer login</Link>
-        </p>
+
       </div>
     </div>
   );
