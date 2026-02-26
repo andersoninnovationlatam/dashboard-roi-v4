@@ -122,7 +122,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             {isOpen && (
               <div className="flex items-center justify-between w-full">
                 <span className="whitespace-nowrap">Configurações</span>
-                <p className="text-xs text-slate-500">v0.3.8</p>
+                <p className="text-xs text-slate-500">v0.3.9</p>
               </div>
             )}
           </NavLink>
