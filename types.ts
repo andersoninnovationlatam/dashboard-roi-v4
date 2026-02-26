@@ -181,10 +181,10 @@ export enum ActivityType {
 }
 
 export enum EntityType {
-  PROJECT = 'project',
-  INDICATOR = 'indicator',
-  USER = 'user',
-  SYSTEM = 'system',
+  PROJECT = 'Projeto',
+  INDICATOR = 'Indicador',
+  USER = 'Usuário',
+  SYSTEM = 'Sistema',
 }
 
 export interface UserActivity {
