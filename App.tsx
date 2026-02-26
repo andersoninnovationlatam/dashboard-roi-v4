@@ -12,12 +12,24 @@ import SignUp from './pages/SignUp';
 import ResetPassword from './pages/ResetPassword';
 import Reports from './pages/Reports';
 import TeamManagement from './pages/TeamManagement';
+import ActivityLog from './pages/ActivityLog';
 import { UserRole } from './types';
+import { auditService } from './services/auditService';
 
 const ProtectedAdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { profile } = useAuth();
   
   if (profile?.role !== UserRole.ADMIN) {
+    return <Navigate to="/" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+const ProtectedAuditRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { profile } = useAuth();
+  
+  if (!profile?.email || !auditService.isAuthorizedUser(profile.email)) {
     return <Navigate to="/" replace />;
   }
   
@@ -116,6 +128,14 @@ const AppContent: React.FC = () => {
                   <ProtectedAdminRoute>
                     <TeamManagement />
                   </ProtectedAdminRoute>
+                } 
+              />
+              <Route 
+                path="/activity-log" 
+                element={
+                  <ProtectedAuditRoute>
+                    <ActivityLog />
+                  </ProtectedAuditRoute>
                 } 
               />
               <Route path="/settings" element={<Settings theme={theme} toggleTheme={toggleTheme} />} />

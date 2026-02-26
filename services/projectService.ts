@@ -1,5 +1,7 @@
 import { supabase, ProjectRow, IndicatorRow } from './supabase';
-import { Project, Indicator, ProjectStatus, DevelopmentType, ImprovementType } from '../types';
+import { Project, Indicator, ProjectStatus, DevelopmentType, ImprovementType, ActivityType, EntityType } from '../types';
+import { auditService } from './auditService';
+import { authService } from './authService';
 
 // Função auxiliar para obter ou criar organização padrão
 const getDefaultOrganizationId = async (): Promise<string> => {
@@ -163,17 +165,80 @@ export const projectService = {
             .single();
 
         if (error) throw error;
-        return mapProjectFromDB(data);
+        
+        const project = mapProjectFromDB(data);
+        
+        // Registrar atividade de atualização de projeto
+        const currentUser = await authService.getCurrentUser();
+        if (currentUser) {
+          const profile = await authService.getUserProfile(currentUser.id).catch(() => null);
+          const clientInfo = auditService.getClientInfo();
+          
+          // Identificar campos alterados
+          const changedFields = Object.keys(updates).filter(key => updates[key as keyof Project] !== undefined);
+          
+          auditService.logActivity(
+            currentUser.id,
+            currentUser.email || '',
+            profile?.full_name || null,
+            ActivityType.PROJECT_UPDATE,
+            `Atualizou o projeto "${project.name}"`,
+            {
+              entityType: EntityType.PROJECT,
+              entityId: project.id,
+              entityName: project.name,
+              metadata: {
+                changed_fields: changedFields,
+                updates: updates,
+              },
+              ipAddress: clientInfo.ipAddress,
+              userAgent: clientInfo.userAgent,
+            }
+          ).catch(() => {
+            // Silently fail - audit logging should not break project update
+          });
+        }
+        
+        return project;
     },
 
     // Deletar projeto
     async delete(id: string): Promise<void> {
+        // Buscar projeto antes de deletar para registrar no log
+        const project = await this.getById(id);
+        
         const { error } = await supabase
             .from('projects')
             .delete()
             .eq('id', id);
 
         if (error) throw error;
+        
+        // Registrar atividade de exclusão de projeto
+        if (project) {
+          const currentUser = await authService.getCurrentUser();
+          if (currentUser) {
+            const profile = await authService.getUserProfile(currentUser.id).catch(() => null);
+            const clientInfo = auditService.getClientInfo();
+            
+            auditService.logActivity(
+              currentUser.id,
+              currentUser.email || '',
+              profile?.full_name || null,
+              ActivityType.PROJECT_DELETE,
+              `Excluiu o projeto "${project.name}"`,
+              {
+                entityType: EntityType.PROJECT,
+                entityId: project.id,
+                entityName: project.name,
+                ipAddress: clientInfo.ipAddress,
+                userAgent: clientInfo.userAgent,
+              }
+            ).catch(() => {
+              // Silently fail - audit logging should not break project deletion
+            });
+          }
+        }
     },
 };
 
@@ -224,7 +289,42 @@ export const indicatorService = {
             .single();
 
         if (error) throw error;
-        return mapIndicatorFromDB(data);
+        
+        const createdIndicator = mapIndicatorFromDB(data);
+        
+        // Registrar atividade de criação de indicador
+        const currentUser = await authService.getCurrentUser();
+        if (currentUser) {
+          const profile = await authService.getUserProfile(currentUser.id).catch(() => null);
+          const clientInfo = auditService.getClientInfo();
+          
+          // Buscar projeto para obter o nome
+          const project = await projectService.getById(createdIndicator.project_id).catch(() => null);
+          
+          auditService.logActivity(
+            currentUser.id,
+            currentUser.email || '',
+            profile?.full_name || null,
+            ActivityType.INDICATOR_CREATE,
+            `Criou o indicador "${createdIndicator.name}" no projeto "${project?.name || createdIndicator.project_id}"`,
+            {
+              entityType: EntityType.INDICATOR,
+              entityId: createdIndicator.id,
+              entityName: createdIndicator.name,
+              metadata: {
+                project_id: createdIndicator.project_id,
+                project_name: project?.name,
+                improvement_type: createdIndicator.improvement_type,
+              },
+              ipAddress: clientInfo.ipAddress,
+              userAgent: clientInfo.userAgent,
+            }
+          ).catch(() => {
+            // Silently fail - audit logging should not break indicator creation
+          });
+        }
+        
+        return createdIndicator;
     },
 
     // Atualizar indicador
@@ -244,16 +344,90 @@ export const indicatorService = {
             .single();
 
         if (error) throw error;
-        return mapIndicatorFromDB(data);
+        
+        const indicator = mapIndicatorFromDB(data);
+        
+        // Registrar atividade de atualização de indicador
+        const currentUser = await authService.getCurrentUser();
+        if (currentUser) {
+          const profile = await authService.getUserProfile(currentUser.id).catch(() => null);
+          const clientInfo = auditService.getClientInfo();
+          
+          // Buscar projeto para obter o nome
+          const project = await projectService.getById(indicator.project_id).catch(() => null);
+          
+          // Identificar campos alterados
+          const changedFields = Object.keys(updates).filter(key => updates[key as keyof Indicator] !== undefined);
+          
+          auditService.logActivity(
+            currentUser.id,
+            currentUser.email || '',
+            profile?.full_name || null,
+            ActivityType.INDICATOR_UPDATE,
+            `Atualizou o indicador "${indicator.name}" no projeto "${project?.name || indicator.project_id}"`,
+            {
+              entityType: EntityType.INDICATOR,
+              entityId: indicator.id,
+              entityName: indicator.name,
+              metadata: {
+                project_id: indicator.project_id,
+                project_name: project?.name,
+                changed_fields: changedFields,
+              },
+              ipAddress: clientInfo.ipAddress,
+              userAgent: clientInfo.userAgent,
+            }
+          ).catch(() => {
+            // Silently fail - audit logging should not break indicator update
+          });
+        }
+        
+        return indicator;
     },
 
     // Deletar indicador (soft delete)
     async delete(id: string): Promise<void> {
+        // Buscar indicador antes de deletar para registrar no log
+        const indicator = await this.getById(id);
+        
         const { error } = await supabase
             .from('indicators')
             .update({ is_active: false })
             .eq('id', id);
 
         if (error) throw error;
+        
+        // Registrar atividade de exclusão de indicador
+        if (indicator) {
+          const currentUser = await authService.getCurrentUser();
+          if (currentUser) {
+            const profile = await authService.getUserProfile(currentUser.id).catch(() => null);
+            const clientInfo = auditService.getClientInfo();
+            
+            // Buscar projeto para obter o nome
+            const project = await projectService.getById(indicator.project_id).catch(() => null);
+            
+            auditService.logActivity(
+              currentUser.id,
+              currentUser.email || '',
+              profile?.full_name || null,
+              ActivityType.INDICATOR_DELETE,
+              `Excluiu o indicador "${indicator.name}" do projeto "${project?.name || indicator.project_id}"`,
+              {
+                entityType: EntityType.INDICATOR,
+                entityId: indicator.id,
+                entityName: indicator.name,
+                metadata: {
+                  project_id: indicator.project_id,
+                  project_name: project?.name,
+                },
+                ipAddress: clientInfo.ipAddress,
+                userAgent: clientInfo.userAgent,
+              }
+            ).catch(() => {
+              // Silently fail - audit logging should not break indicator deletion
+            });
+          }
+        }
     },
 };

@@ -167,3 +167,45 @@ export interface KPIStats {
   roi_calculado: number;
   payback_calculado: number;
 }
+
+// Audit System Types
+export enum ActivityType {
+  LOGIN = 'LOGIN',
+  LOGOUT = 'LOGOUT',
+  PROJECT_CREATE = 'PROJECT_CREATE',
+  PROJECT_UPDATE = 'PROJECT_UPDATE',
+  PROJECT_DELETE = 'PROJECT_DELETE',
+  INDICATOR_CREATE = 'INDICATOR_CREATE',
+  INDICATOR_UPDATE = 'INDICATOR_UPDATE',
+  INDICATOR_DELETE = 'INDICATOR_DELETE',
+}
+
+export enum EntityType {
+  PROJECT = 'project',
+  INDICATOR = 'indicator',
+  USER = 'user',
+  SYSTEM = 'system',
+}
+
+export interface UserActivity {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_name: string | null;
+  activity_type: ActivityType;
+  activity_description: string;
+  entity_type: EntityType | null;
+  entity_id: string | null;
+  entity_name: string | null;
+  metadata: Record<string, any>;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+// Lista de emails autorizados para visualizar logs de auditoria
+// IMPORTANTE: Atualizar estes emails com os emails reais dos usuários autorizados
+export const AUDIT_AUTHORIZED_EMAILS = [
+  'anderson.pinto@innovationlatam.com', // Substituir pelo email real do primeiro usuário autorizado
+  'jpb@innovationlatam.com', // Substituir pelo email real do segundo usuário autorizado
+];
