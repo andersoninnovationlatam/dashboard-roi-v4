@@ -3,6 +3,7 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
+import { auditService } from '../services/auditService';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
   const { signOut, profile } = useAuth();
   const navigate = useNavigate();
   const isAdmin = profile?.role === UserRole.ADMIN;
+  const isAuditAuthorized = profile?.email ? auditService.isAuthorizedUser(profile.email) : false;
 
   const handleLogout = async () => {
     await signOut();
@@ -97,6 +99,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
               {isOpen && <span className="whitespace-nowrap">Gestão de Equipe</span>}
             </NavLink>
           )}
+
+          {isAuditAuthorized && (
+            <NavLink
+              to="/activity-log"
+              className={({ isActive }) => `flex items-center gap-3 p-3.5 rounded-xl text-sm font-bold transition-all ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${!isOpen ? 'justify-center' : ''}`}
+              title="Log de Atividades"
+            >
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+              {isOpen && <span className="whitespace-nowrap">Log de Atividades</span>}
+            </NavLink>
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-800 space-y-1">
@@ -109,7 +122,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             {isOpen && (
               <div className="flex items-center justify-between w-full">
                 <span className="whitespace-nowrap">Configurações</span>
-                <p className="text-xs text-slate-500">v0.3.7</p>
+                <p className="text-xs text-slate-500">v0.3.8</p>
               </div>
             )}
           </NavLink>

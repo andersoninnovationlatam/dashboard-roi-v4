@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
-import { UserRole } from '../types';
+import { UserRole, ActivityType } from '../types';
+import { auditService } from './auditService';
 
 export interface UserProfile {
   id: string;
@@ -24,6 +25,27 @@ export const authService = {
     });
 
     if (error) throw error;
+
+    // Registrar atividade de login
+    if (data.user) {
+      const clientInfo = auditService.getClientInfo();
+      const profile = await this.getUserProfile(data.user.id).catch(() => null);
+      
+      auditService.logActivity(
+        data.user.id,
+        data.user.email || email,
+        profile?.full_name || null,
+        ActivityType.LOGIN,
+        `Usuário fez login no sistema`,
+        {
+          ipAddress: clientInfo.ipAddress,
+          userAgent: clientInfo.userAgent,
+        }
+      ).catch(() => {
+        // Silently fail - audit logging should not break login
+      });
+    }
+
     return data;
   },
 
@@ -89,8 +111,35 @@ export const authService = {
 
   // Logout
   async signOut() {
+    // Obter informações do usuário antes de fazer logout
+    const currentUser = await this.getCurrentUser();
+    let profile: UserProfile | null = null;
+    
+    if (currentUser) {
+      profile = await this.getUserProfile(currentUser.id).catch(() => null);
+    }
+
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+
+    // Registrar atividade de logout
+    if (currentUser) {
+      const clientInfo = auditService.getClientInfo();
+      
+      auditService.logActivity(
+        currentUser.id,
+        currentUser.email || '',
+        profile?.full_name || null,
+        ActivityType.LOGOUT,
+        `Usuário fez logout do sistema`,
+        {
+          ipAddress: clientInfo.ipAddress,
+          userAgent: clientInfo.userAgent,
+        }
+      ).catch(() => {
+        // Silently fail - audit logging should not break logout
+      });
+    }
   },
 
   // Obter usuário atual
