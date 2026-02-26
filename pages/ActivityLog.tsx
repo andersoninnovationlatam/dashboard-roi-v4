@@ -235,7 +235,7 @@ const ActivityLog: React.FC = () => {
               <option value="">Todas</option>
               {Object.values(EntityType).map((type) => (
                 <option key={type} value={type}>
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                  {type}
                 </option>
               ))}
             </select>
