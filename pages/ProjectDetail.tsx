@@ -1031,7 +1031,7 @@ const ProjectDetail: React.FC = () => {
                             {ind.improvement_type !== ImprovementType.CUSTOM && (
                               <div className="text-right">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Impacto Anual</p>
-                                <p className="font-black text-green-500 dark:text-green-400 text-xl">R$ {stats.annualEconomy.toLocaleString()}</p>
+                                <p className="font-black text-green-500 dark:text-green-400 text-xl">R$ {stats.annualEconomy.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                               </div>
                             )}
                             <button onClick={() => removeIndicator(idx)} className="text-slate-300 hover:text-red-500 transition-colors p-2">
@@ -1854,7 +1854,7 @@ const ProjectDetail: React.FC = () => {
                                       </div>
                                       {ind.baseline.revenue && ind.baseline.cost && ind.postIA.revenue && ind.postIA.cost && (
                                         <p className="text-[10px] font-black text-green-500 mt-2">
-                                          Margem: R$ {((ind.postIA.revenue - ind.postIA.cost) - (ind.baseline.revenue - ind.baseline.cost)).toLocaleString()}
+                                          Margem: R$ {((ind.postIA.revenue - ind.postIA.cost) - (ind.baseline.revenue - ind.baseline.cost)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </p>
                                       )}
                                     </div>
@@ -1988,7 +1988,7 @@ const ProjectDetail: React.FC = () => {
                                       </div>
                                       {ind.baseline.volume && ind.baseline.cost && ind.postIA.volume && ind.postIA.cost && (
                                         <p className="text-[10px] font-black text-green-500 mt-2">
-                                          Economia: R$ {((ind.baseline.volume * ind.baseline.cost) - (ind.postIA.volume * ind.postIA.cost)).toLocaleString()}/mês
+                                          Economia: R$ {((ind.baseline.volume * ind.baseline.cost) - (ind.postIA.volume * ind.postIA.cost)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mês
                                         </p>
                                       )}
                                     </div>
@@ -2009,7 +2009,7 @@ const ProjectDetail: React.FC = () => {
                                       />
                                       {ind.baseline.value && ind.postIA.value && (
                                         <p className="text-[10px] font-black text-green-500 mt-2">
-                                          Ganho: R$ {(ind.postIA.value - ind.baseline.value).toLocaleString()}/mês
+                                          Ganho: R$ {(ind.postIA.value - ind.baseline.value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mês
                                         </p>
                                       )}
                                     </div>
